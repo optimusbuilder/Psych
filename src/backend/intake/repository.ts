@@ -9,7 +9,13 @@ import type {
 } from "./contracts";
 import { buildId, computeOverallSeverity } from "./utils";
 import { evaluateSafety } from "../safety/service";
-import { evaluateTriageRules, rulesInputFromAggregate } from "../rules/engine";
+import {
+  evaluateTriageRules,
+  rulesInputFromAggregate,
+  type CommunicationProfile,
+  type PathwayKey,
+  type SpecialtyTrack,
+} from "../rules/engine";
 import {
   buildDecisionUpdateFromInstrument,
   INSTRUMENT_ENGINE_VERSION,
@@ -74,6 +80,9 @@ export interface IntakeSessionAggregate {
     type: string;
     relationshipToPatient: string | null;
     ageIfPatient: number | null;
+    communicationProfile: CommunicationProfile;
+    developmentalDelayConcern: boolean;
+    autismConcern: boolean;
   } | null;
   safetyAssessment: {
     id: string;
@@ -82,6 +91,7 @@ export interface IntakeSessionAggregate {
     psychosisManiaFlag: boolean;
     escalationLevel: string;
     requiresImmediateReview: boolean;
+    detailFlags: Record<string, unknown>;
     notes: string | null;
   } | null;
   symptomAssessment: {
@@ -89,6 +99,11 @@ export interface IntakeSessionAggregate {
     primaryFamily: string;
     secondaryFamilies: string[];
     isMixedUnclear: boolean;
+    familyScores: Record<string, number>;
+    mostImpairingConcern: string | null;
+    insufficientData: boolean;
+    mixedSignals: boolean;
+    conductRedFlags: Record<string, boolean>;
   } | null;
   functionalImpact: {
     id: string;
@@ -97,6 +112,7 @@ export interface IntakeSessionAggregate {
     peerScore: number;
     safetyLegalScore: number;
     overallSeverity: string;
+    rapidWorsening: boolean;
   } | null;
 }
 
@@ -170,6 +186,9 @@ export interface ReviewQueueCaseRow {
   createdAt: string;
   latestDecision: {
     recommendation: string;
+    pathwayKey: PathwayKey | null;
+    specialtyTrack: SpecialtyTrack | null;
+    reasonCodes: string[];
     requiresClinicianReview: boolean;
     urgencyLevel: string;
     engineVersion: string;
@@ -338,6 +357,9 @@ export class IntakeRepository {
   private async getLatestDecisionForSession(sessionId: string) {
     const result = await this.db.query<{
       recommendation: string;
+      pathway_key: PathwayKey | null;
+      specialty_track: SpecialtyTrack | null;
+      reason_codes_json: string[] | null;
       requires_clinician_review: boolean;
       urgency_level: string;
       engine_version: string;
@@ -346,6 +368,9 @@ export class IntakeRepository {
       `
         SELECT
           recommendation,
+          pathway_key,
+          specialty_track,
+          reason_codes_json,
           requires_clinician_review,
           urgency_level,
           engine_version,
@@ -364,6 +389,9 @@ export class IntakeRepository {
 
     return {
       recommendation: result.rows[0].recommendation,
+      pathwayKey: result.rows[0].pathway_key,
+      specialtyTrack: result.rows[0].specialty_track,
+      reasonCodes: result.rows[0].reason_codes_json ?? [],
       requiresClinicianReview: result.rows[0].requires_clinician_review,
       urgencyLevel: result.rows[0].urgency_level,
       engineVersion: result.rows[0].engine_version,
@@ -383,8 +411,11 @@ export class IntakeRepository {
             intake_session_id,
             type,
             relationship_to_patient,
-            age_if_patient
-          ) VALUES ($1,$2,$3,$4,$5)
+            age_if_patient,
+            communication_profile,
+            developmental_delay_concern,
+            autism_concern
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         `,
         [
           respondentId,
@@ -392,6 +423,9 @@ export class IntakeRepository {
           input.type,
           input.relationshipToPatient ?? null,
           input.ageIfPatient ?? null,
+          input.communicationProfile ?? "unknown",
+          input.developmentalDelayConcern ?? false,
+          input.autismConcern ?? false,
         ],
       );
       await this.db.query("COMMIT");
@@ -418,8 +452,9 @@ export class IntakeRepository {
             psychosis_mania_flag,
             escalation_level,
             requires_immediate_review,
+            detail_flags_json,
             notes
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
           ON CONFLICT (intake_session_id)
           DO UPDATE SET
             suicidal_risk_flag = EXCLUDED.suicidal_risk_flag,
@@ -427,6 +462,7 @@ export class IntakeRepository {
             psychosis_mania_flag = EXCLUDED.psychosis_mania_flag,
             escalation_level = EXCLUDED.escalation_level,
             requires_immediate_review = EXCLUDED.requires_immediate_review,
+            detail_flags_json = EXCLUDED.detail_flags_json,
             notes = EXCLUDED.notes
           RETURNING id
         `,
@@ -438,6 +474,7 @@ export class IntakeRepository {
           input.psychosisManiaFlag,
           evaluation.escalationLevel,
           evaluation.requiresImmediateReview,
+          JSON.stringify(input.detailFlags ?? {}),
           input.notes ?? null,
         ],
       );
@@ -456,16 +493,66 @@ export class IntakeRepository {
         [sessionId, evaluation.requiresImmediateReview],
       );
 
-      if (evaluation.requiresImmediateReview) {
-        let actorIdForAudit: string | null = actorUserId;
-        if (actorUserId) {
-          const actorLookup = await this.db.query<{ id: string }>(
-            "SELECT id FROM users WHERE id = $1",
-            [actorUserId],
-          );
-          actorIdForAudit = actorLookup.rows.length > 0 ? actorUserId : null;
-        }
+      let actorIdForAudit: string | null = actorUserId;
+      if (actorUserId) {
+        const actorLookup = await this.db.query<{ id: string }>(
+          "SELECT id FROM users WHERE id = $1",
+          [actorUserId],
+        );
+        actorIdForAudit = actorLookup.rows.length > 0 ? actorUserId : null;
+      }
 
+      await this.db.query(
+        `
+          INSERT INTO audit_logs (
+            id,
+            entity_type,
+            entity_id,
+            action,
+            actor_user_id,
+            metadata_json
+          ) VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+        `,
+        [
+          buildId("audit"),
+          "intake_session",
+          sessionId,
+          "safety_screen_completed",
+          actorIdForAudit,
+          JSON.stringify({
+            escalationLevel: evaluation.escalationLevel,
+            reasonCodes: evaluation.reasonCodes,
+          }),
+        ],
+      );
+
+      if (evaluation.autoRoutingSuspended) {
+        await this.db.query(
+          `
+            INSERT INTO audit_logs (
+              id,
+              entity_type,
+              entity_id,
+              action,
+              actor_user_id,
+              metadata_json
+            ) VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+          `,
+          [
+            buildId("audit"),
+            "intake_session",
+            sessionId,
+            "auto_routing_suspended",
+            actorIdForAudit,
+            JSON.stringify({
+              escalationLevel: evaluation.escalationLevel,
+              reasonCodes: evaluation.reasonCodes,
+            }),
+          ],
+        );
+      }
+
+      if (evaluation.requiresImmediateReview) {
         await this.db.query(
           `
             INSERT INTO audit_logs (
@@ -544,13 +631,23 @@ export class IntakeRepository {
           intake_session_id,
           primary_family,
           secondary_families_json,
-          is_mixed_unclear
-        ) VALUES ($1,$2,$3,$4::jsonb,$5)
+          is_mixed_unclear,
+          family_scores_json,
+          most_impairing_concern,
+          insufficient_data,
+          mixed_signals,
+          conduct_red_flags_json
+        ) VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb,$7,$8,$9,$10::jsonb)
         ON CONFLICT (intake_session_id)
         DO UPDATE SET
           primary_family = EXCLUDED.primary_family,
           secondary_families_json = EXCLUDED.secondary_families_json,
-          is_mixed_unclear = EXCLUDED.is_mixed_unclear
+          is_mixed_unclear = EXCLUDED.is_mixed_unclear,
+          family_scores_json = EXCLUDED.family_scores_json,
+          most_impairing_concern = EXCLUDED.most_impairing_concern,
+          insufficient_data = EXCLUDED.insufficient_data,
+          mixed_signals = EXCLUDED.mixed_signals,
+          conduct_red_flags_json = EXCLUDED.conduct_red_flags_json
         RETURNING id
       `,
       [
@@ -559,6 +656,11 @@ export class IntakeRepository {
         input.primaryFamily,
         JSON.stringify(input.secondaryFamilies ?? []),
         input.isMixedUnclear ?? false,
+        JSON.stringify(input.familyScores ?? {}),
+        input.mostImpairingConcern ?? null,
+        input.insufficientData ?? false,
+        input.mixedSignals ?? false,
+        JSON.stringify(input.conductRedFlags ?? {}),
       ],
     );
     return { id: result.rows[0].id };
@@ -577,15 +679,17 @@ export class IntakeRepository {
           school_score,
           peer_score,
           safety_legal_score,
-          overall_severity
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+          overall_severity,
+          rapid_worsening
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         ON CONFLICT (intake_session_id)
         DO UPDATE SET
           home_score = EXCLUDED.home_score,
           school_score = EXCLUDED.school_score,
           peer_score = EXCLUDED.peer_score,
           safety_legal_score = EXCLUDED.safety_legal_score,
-          overall_severity = EXCLUDED.overall_severity
+          overall_severity = EXCLUDED.overall_severity,
+          rapid_worsening = EXCLUDED.rapid_worsening
         RETURNING id
       `,
       [
@@ -596,6 +700,7 @@ export class IntakeRepository {
         input.peerScore,
         input.safetyLegalScore,
         overallSeverity,
+        input.rapidWorsening ?? false,
       ],
     );
     return { id: result.rows[0].id, overallSeverity };
@@ -622,9 +727,19 @@ export class IntakeRepository {
       type: string;
       relationship_to_patient: string | null;
       age_if_patient: number | null;
+      communication_profile: CommunicationProfile | null;
+      developmental_delay_concern: boolean | null;
+      autism_concern: boolean | null;
     }>(
       `
-        SELECT id, type, relationship_to_patient, age_if_patient
+        SELECT
+          id,
+          type,
+          relationship_to_patient,
+          age_if_patient,
+          communication_profile,
+          developmental_delay_concern,
+          autism_concern
         FROM respondents
         WHERE intake_session_id = $1
         ORDER BY created_at DESC
@@ -640,6 +755,7 @@ export class IntakeRepository {
       psychosis_mania_flag: boolean;
       escalation_level: string;
       requires_immediate_review: boolean;
+      detail_flags_json: Record<string, unknown> | null;
       notes: string | null;
     }>(
       `
@@ -650,6 +766,7 @@ export class IntakeRepository {
           psychosis_mania_flag,
           escalation_level,
           requires_immediate_review,
+          detail_flags_json,
           notes
         FROM safety_assessments
         WHERE intake_session_id = $1
@@ -662,13 +779,23 @@ export class IntakeRepository {
       primary_family: string;
       secondary_families_json: string[] | null;
       is_mixed_unclear: boolean;
+      family_scores_json: Record<string, number> | null;
+      most_impairing_concern: string | null;
+      insufficient_data: boolean;
+      mixed_signals: boolean;
+      conduct_red_flags_json: Record<string, boolean> | null;
     }>(
       `
         SELECT
           id,
           primary_family,
           secondary_families_json,
-          is_mixed_unclear
+          is_mixed_unclear,
+          family_scores_json,
+          most_impairing_concern,
+          insufficient_data,
+          mixed_signals,
+          conduct_red_flags_json
         FROM symptom_family_assessments
         WHERE intake_session_id = $1
       `,
@@ -682,6 +809,7 @@ export class IntakeRepository {
       peer_score: number;
       safety_legal_score: number;
       overall_severity: string;
+      rapid_worsening: boolean;
     }>(
       `
         SELECT
@@ -690,7 +818,8 @@ export class IntakeRepository {
           school_score,
           peer_score,
           safety_legal_score,
-          overall_severity
+          overall_severity,
+          rapid_worsening
         FROM functional_impairment_scores
         WHERE intake_session_id = $1
       `,
@@ -724,6 +853,10 @@ export class IntakeRepository {
               type: respondentResult.rows[0].type,
               relationshipToPatient: respondentResult.rows[0].relationship_to_patient,
               ageIfPatient: respondentResult.rows[0].age_if_patient,
+              communicationProfile: respondentResult.rows[0].communication_profile ?? "unknown",
+              developmentalDelayConcern:
+                respondentResult.rows[0].developmental_delay_concern ?? false,
+              autismConcern: respondentResult.rows[0].autism_concern ?? false,
             }
           : null,
       safetyAssessment:
@@ -735,6 +868,7 @@ export class IntakeRepository {
               psychosisManiaFlag: safetyResult.rows[0].psychosis_mania_flag,
               escalationLevel: safetyResult.rows[0].escalation_level,
               requiresImmediateReview: safetyResult.rows[0].requires_immediate_review,
+              detailFlags: safetyResult.rows[0].detail_flags_json ?? {},
               notes: safetyResult.rows[0].notes,
             }
           : null,
@@ -745,6 +879,11 @@ export class IntakeRepository {
               primaryFamily: symptomResult.rows[0].primary_family,
               secondaryFamilies: symptomResult.rows[0].secondary_families_json ?? [],
               isMixedUnclear: symptomResult.rows[0].is_mixed_unclear,
+              familyScores: symptomResult.rows[0].family_scores_json ?? {},
+              mostImpairingConcern: symptomResult.rows[0].most_impairing_concern,
+              insufficientData: symptomResult.rows[0].insufficient_data,
+              mixedSignals: symptomResult.rows[0].mixed_signals,
+              conductRedFlags: symptomResult.rows[0].conduct_red_flags_json ?? {},
             }
           : null,
       functionalImpact:
@@ -756,6 +895,7 @@ export class IntakeRepository {
               peerScore: functionalResult.rows[0].peer_score,
               safetyLegalScore: functionalResult.rows[0].safety_legal_score,
               overallSeverity: functionalResult.rows[0].overall_severity,
+              rapidWorsening: functionalResult.rows[0].rapid_worsening,
             }
           : null,
     };
@@ -816,10 +956,13 @@ export class IntakeRepository {
             id,
             intake_session_id,
             recommendation,
+            pathway_key,
+            specialty_track,
+            reason_codes_json,
             requires_clinician_review,
             urgency_level,
             engine_version
-          ) VALUES ($1,$2,$3,$4,$5,$6)
+          ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
           RETURNING
             id,
             recommendation,
@@ -832,6 +975,9 @@ export class IntakeRepository {
           decisionId,
           sessionId,
           decision.recommendation,
+          decision.pathwayKey,
+          decision.specialtyTrack,
+          JSON.stringify(decision.reasonCodes),
           decision.requiresClinicianReview,
           decision.urgencyLevel,
           decision.engineVersion,

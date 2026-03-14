@@ -44,6 +44,9 @@ CREATE TABLE respondents (
   type TEXT NOT NULL CHECK (type IN ('patient', 'caregiver', 'clinician')),
   relationship_to_patient TEXT,
   age_if_patient INTEGER CHECK (age_if_patient >= 0 AND age_if_patient <= 25),
+  communication_profile TEXT CHECK (communication_profile IN ('verbal_typical', 'limited_verbal', 'nonverbal', 'unknown')),
+  developmental_delay_concern BOOLEAN,
+  autism_concern BOOLEAN,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -55,6 +58,7 @@ CREATE TABLE safety_assessments (
   psychosis_mania_flag BOOLEAN NOT NULL DEFAULT FALSE,
   escalation_level TEXT NOT NULL CHECK (escalation_level IN ('none', 'urgent', 'immediate')),
   requires_immediate_review BOOLEAN NOT NULL DEFAULT FALSE,
+  detail_flags_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -65,6 +69,11 @@ CREATE TABLE symptom_family_assessments (
   primary_family TEXT NOT NULL,
   secondary_families_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   is_mixed_unclear BOOLEAN NOT NULL DEFAULT FALSE,
+  family_scores_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  most_impairing_concern TEXT,
+  insufficient_data BOOLEAN NOT NULL DEFAULT FALSE,
+  mixed_signals BOOLEAN NOT NULL DEFAULT FALSE,
+  conduct_red_flags_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -76,6 +85,7 @@ CREATE TABLE functional_impairment_scores (
   peer_score SMALLINT NOT NULL CHECK (peer_score BETWEEN 0 AND 10),
   safety_legal_score SMALLINT NOT NULL CHECK (safety_legal_score BETWEEN 0 AND 10),
   overall_severity TEXT NOT NULL CHECK (overall_severity IN ('mild', 'moderate', 'severe', 'unclear')),
+  rapid_worsening BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -103,6 +113,9 @@ CREATE TABLE triage_decisions (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL REFERENCES intake_sessions(id) ON DELETE CASCADE,
   recommendation TEXT NOT NULL,
+  pathway_key TEXT,
+  specialty_track TEXT,
+  reason_codes_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   requires_clinician_review BOOLEAN NOT NULL DEFAULT FALSE,
   urgency_level TEXT NOT NULL CHECK (urgency_level IN ('routine', 'priority', 'urgent', 'immediate')),
   engine_version TEXT NOT NULL,
