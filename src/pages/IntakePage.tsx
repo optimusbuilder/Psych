@@ -208,7 +208,16 @@ export default function IntakePage() {
         setSessionId(createdSession);
       }
 
-      await saveRespondent(createdSession, respondentToApiType(data.respondent));
+      await saveRespondent(createdSession, respondentToApiType(data.respondent), {
+        communicationProfile:
+          data.patientInfo.verbalCommunication === "verbal_typical" ||
+          data.patientInfo.verbalCommunication === "limited_verbal" ||
+          data.patientInfo.verbalCommunication === "nonverbal"
+            ? data.patientInfo.verbalCommunication
+            : "unknown",
+        developmentalDelayConcern: data.patientInfo.developmentalDelayConcern === "yes",
+        autismConcern: data.patientInfo.autismConcern === "yes",
+      });
       const safetyPayload = deriveSafetySubmission(data.safetyFlags);
       const safetyResponse = await saveSafety(createdSession, safetyPayload);
 
@@ -245,6 +254,11 @@ export default function IntakePage() {
         sessionId,
         routing.primaryFamilyLabel,
         routing.secondaryFamilyLabels,
+        {
+          familyScores: routing.familyScores,
+          insufficientData: routing.insufficientData,
+          mixedSignals: routing.mixedSignals || routing.isMixedUnclear,
+        },
       );
       setStep(5);
     } catch (error) {

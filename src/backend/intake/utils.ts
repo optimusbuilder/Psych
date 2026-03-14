@@ -10,16 +10,20 @@ export function computeOverallSeverity(scores: {
   peerScore: number;
   safetyLegalScore: number;
 }) {
-  const maxScore = Math.max(
+  const values = [
     scores.homeScore,
     scores.schoolScore,
     scores.peerScore,
     scores.safetyLegalScore,
-  );
-  if (maxScore >= 7) {
+  ];
+  const maxScore = Math.max(...values);
+  const domainsAtLeast7 = values.filter((value) => value >= 7).length;
+  const domainsAtLeast4 = values.filter((value) => value >= 4).length;
+
+  if (maxScore >= 8 || scores.safetyLegalScore >= 7 || domainsAtLeast7 >= 2) {
     return "severe" as const;
   }
-  if (maxScore >= 4) {
+  if (maxScore >= 4 || domainsAtLeast4 >= 2) {
     return "moderate" as const;
   }
   return "mild" as const;

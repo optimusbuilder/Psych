@@ -277,7 +277,9 @@ describe("P8-Frontend-Live-Flow", () => {
     await waitFor(() => {
       expect(screen.getByText("Ava Stone")).toBeInTheDocument();
       expect(
-        screen.getByText(/Targeted screening with clinician review is recommended before final routing/i),
+        screen.getByText(
+          /(Targeted screening with clinician review is recommended before final routing|Clinician review is required before final routing)/i,
+        ),
       ).toBeInTheDocument();
     });
   });

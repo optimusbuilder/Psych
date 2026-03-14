@@ -64,6 +64,7 @@ export interface IntakeSubmitResponse {
     urgencyLevel: string;
     engineVersion: string;
     pathwayKey: string;
+    specialtyTrack?: string;
     reasonCodes: string[];
   };
 }
@@ -78,6 +79,9 @@ export interface ReviewQueueCase {
   createdAt: string;
   latestDecision: {
     recommendation: string;
+    pathwayKey: string | null;
+    specialtyTrack: string | null;
+    reasonCodes: string[];
     requiresClinicianReview: boolean;
     urgencyLevel: string;
     engineVersion: string;
@@ -125,6 +129,9 @@ export interface ProviderCaseDetailResponse {
   } | null;
   latestDecision: {
     recommendation: string;
+    pathwayKey: string | null;
+    specialtyTrack: string | null;
+    reasonCodes: string[];
     requiresClinicianReview: boolean;
     urgencyLevel: string;
     engineVersion: string;
@@ -168,7 +175,15 @@ export async function createIntakeSession(input: {
   );
 }
 
-export async function saveRespondent(sessionId: string, type: "patient" | "caregiver" | "clinician") {
+export async function saveRespondent(
+  sessionId: string,
+  type: "patient" | "caregiver" | "clinician",
+  options?: {
+    communicationProfile?: "verbal_typical" | "limited_verbal" | "nonverbal" | "unknown";
+    developmentalDelayConcern?: boolean;
+    autismConcern?: boolean;
+  },
+) {
   return request<{ id: string }>(
     `/api/v1/intake-sessions/${sessionId}/respondent`,
     {
@@ -176,6 +191,9 @@ export async function saveRespondent(sessionId: string, type: "patient" | "careg
       body: JSON.stringify({
         type,
         relationshipToPatient: type === "caregiver" ? "caregiver" : undefined,
+        communicationProfile: options?.communicationProfile,
+        developmentalDelayConcern: options?.developmentalDelayConcern,
+        autismConcern: options?.autismConcern,
       }),
     },
     "caregiver",
@@ -190,6 +208,19 @@ export async function saveSafety(
     harmOthers: boolean;
     psychosisMania?: boolean;
     notes?: string;
+    detailFlags?: {
+      immediateDangerNow?: boolean;
+      suicidalPlanOrIntent?: boolean;
+      suicideAttemptPast3Months?: boolean;
+      violentPlan?: boolean;
+      violentTarget?: boolean;
+      violentMeansAccess?: boolean;
+      fireSetting?: boolean;
+      weaponUseOrAccessForHarm?: boolean;
+      severeIntoxicationWithdrawalOverdose?: boolean;
+      severePsychosisManiaDisorganization?: boolean;
+      abuseNeglectConcern?: boolean;
+    };
   },
 ) {
   return request<{
@@ -206,13 +237,23 @@ export async function saveSafety(
         violenceRiskFlag: flags.harmOthers,
         psychosisManiaFlag: flags.psychosisMania ?? false,
         notes: flags.notes,
+        detailFlags: flags.detailFlags,
       }),
     },
     "caregiver",
   );
 }
 
-export async function saveSymptoms(sessionId: string, symptomLabel: string, secondary: string[]) {
+export async function saveSymptoms(
+  sessionId: string,
+  symptomLabel: string,
+  secondary: string[],
+  options?: {
+    familyScores?: Record<string, number>;
+    insufficientData?: boolean;
+    mixedSignals?: boolean;
+  },
+) {
   return request<{ id: string }>(
     `/api/v1/intake-sessions/${sessionId}/symptoms`,
     {
@@ -220,7 +261,10 @@ export async function saveSymptoms(sessionId: string, symptomLabel: string, seco
       body: JSON.stringify({
         primaryFamily: symptomLabel,
         secondaryFamilies: secondary,
-        isMixedUnclear: false,
+        isMixedUnclear: options?.mixedSignals ?? false,
+        familyScores: options?.familyScores,
+        insufficientData: options?.insufficientData,
+        mixedSignals: options?.mixedSignals,
       }),
     },
     "caregiver",
@@ -229,7 +273,13 @@ export async function saveSymptoms(sessionId: string, symptomLabel: string, seco
 
 export async function saveFunctionalImpact(
   sessionId: string,
-  impact: { home: number; school: number; social: number; safety: number },
+  impact: {
+    home: number;
+    school: number;
+    social: number;
+    safety: number;
+    rapidWorsening?: boolean;
+  },
 ) {
   return request<{ id: string; overallSeverity: string }>(
     `/api/v1/intake-sessions/${sessionId}/functional-impact`,
@@ -240,6 +290,7 @@ export async function saveFunctionalImpact(
         schoolScore: impact.school,
         peerScore: impact.social,
         safetyLegalScore: impact.safety,
+        rapidWorsening: impact.rapidWorsening ?? false,
       }),
     },
     "caregiver",

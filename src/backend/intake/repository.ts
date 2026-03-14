@@ -1370,15 +1370,21 @@ export class IntakeRepository {
                 id,
                 intake_session_id,
                 recommendation,
+                pathway_key,
+                specialty_track,
+                reason_codes_json,
                 requires_clinician_review,
                 urgency_level,
                 engine_version
-              ) VALUES ($1,$2,$3,$4,$5,$6)
+              ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
             `,
             [
               buildId("decision"),
               assignment.intake_session_id,
               update.recommendation,
+              null,
+              null,
+              JSON.stringify([update.reasonCode, "ROUTE_TARGETED_SCREENING"]),
               update.requiresClinicianReview,
               update.urgencyLevel,
               update.engineVersion,
@@ -1682,15 +1688,21 @@ export class IntakeRepository {
             id,
             intake_session_id,
             recommendation,
+            pathway_key,
+            specialty_track,
+            reason_codes_json,
             requires_clinician_review,
             urgency_level,
             engine_version
-          ) VALUES ($1,$2,$3,$4,$5,$6)
+          ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
         `,
         [
           buildId("decision"),
           sessionId,
           input.finalDisposition,
+          null,
+          null,
+          JSON.stringify(["ROUTE_CLINICIAN_OVERRIDE"]),
           false,
           currentUrgency,
           "clinician-review-v1.0.0",

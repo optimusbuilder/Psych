@@ -68,7 +68,7 @@ const fixtureMatrix: Fixture[] = [
       pathwayKey: "developmental_evaluation_referral",
       requiresClinicianReview: false,
       urgencyLevel: "routine",
-      reasonCode: "DEVELOPMENTAL_REFERRAL",
+      reasonCode: "ROUTE_DEVELOPMENTAL_EVALUATION",
     },
   },
   {
@@ -99,7 +99,7 @@ const fixtureMatrix: Fixture[] = [
       pathwayKey: "targeted_screening_and_clinician_review",
       requiresClinicianReview: true,
       urgencyLevel: "priority",
-      reasonCode: "TARGETED_SCREENING_REQUIRED",
+      reasonCode: "ROUTE_TARGETED_SCREENING",
     },
   },
   {
@@ -161,7 +161,7 @@ const fixtureMatrix: Fixture[] = [
       pathwayKey: "substance_use_counseling_referral",
       requiresClinicianReview: false,
       urgencyLevel: "priority",
-      reasonCode: "SUBSTANCE_REFERRAL",
+      reasonCode: "ROUTE_SUBSTANCE_REFERRAL",
     },
   },
   {
@@ -222,7 +222,7 @@ const fixtureMatrix: Fixture[] = [
       severityTier: "mild",
       pathwayKey: "immediate_urgent_review",
       requiresClinicianReview: true,
-      urgencyLevel: "immediate",
+      urgencyLevel: "urgent",
       reasonCode: "SAFETY_OVERRIDE",
     },
   },
@@ -499,7 +499,7 @@ describe("P5-Rules-Fixture-Matrix", () => {
       }
       expect(decisionRows.rows[0].urgency_level).toBe("priority");
       expect(decisionRows.rows[0].requires_clinician_review).toBe(true);
-      expect(decisionRows.rows[1].urgency_level).toBe("immediate");
+      expect(decisionRows.rows[1].urgency_level).toBe("urgent");
       expect(decisionRows.rows[1].requires_clinician_review).toBe(true);
     } finally {
       await pool.end();

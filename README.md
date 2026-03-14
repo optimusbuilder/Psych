@@ -127,17 +127,24 @@ Scope:
   - symptom family selection
   - severity by highest functional impairment
   - mixed/unclear routing to clinician review
+  - safety gate escalation (`clear | urgent | immediate`)
+  - specialty-track diversification for clinically distinct moderate cases
 - Version all rule sets
 
 Success test:
 - Test name: `P5-Rules-Fixture-Matrix`
+- Test name: `P5-Threshold-Drift-Guards`
 - Method:
 1. Run a fixture matrix covering age bands, symptom families, and severity tiers
 2. Validate engine outputs against expected outcomes
+3. Run threshold guard fixtures (`n-1`, `n`, `n+1`) around severity and mixed/unclear cutoffs
+4. Validate route diversification and missing-data safety guards
 - Pass criteria:
 1. 100% fixture match for expected pathway/review requirement
 2. Engine returns deterministic output for repeated same input
 3. Rule version is attached to every triage decision
+4. Safety-positive fixtures never auto-clear
+5. Moderate-family fixtures produce diversified `specialty_track` outputs
 
 ### Phase 6: Instrument Routing and Scoring
 Scope:

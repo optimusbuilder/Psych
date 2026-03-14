@@ -44,7 +44,10 @@ CREATE TABLE respondents (
   type TEXT NOT NULL CHECK (type IN ('patient', 'caregiver', 'clinician')),
   relationship_to_patient TEXT,
   age_if_patient INTEGER CHECK (age_if_patient >= 0 AND age_if_patient <= 25),
-  communication_profile TEXT CHECK (communication_profile IN ('verbal_typical', 'limited_verbal', 'nonverbal', 'unknown')),
+  communication_profile TEXT CHECK (
+    communication_profile IS NULL
+    OR communication_profile IN ('verbal_typical', 'limited_verbal', 'nonverbal', 'unknown')
+  ),
   developmental_delay_concern BOOLEAN,
   autism_concern BOOLEAN,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -180,13 +180,19 @@ export interface SymptomRoutingResult {
   primaryFamilyLabel: string;
   secondaryFamilyLabels: string[];
   isMixedUnclear: boolean;
+  familyScores: Record<string, number>;
+  insufficientData: boolean;
+  mixedSignals: boolean;
 }
 
 function scoreFamily(id: SymptomFamilyId, responses: SymptomDetailResponses) {
   const values = Object.values(responses[id]).filter(
     (value): value is FrequencyValue => value !== null,
   );
-  return values.reduce((sum, value) => sum + value, 0);
+  if (values.length < 2) {
+    return null;
+  }
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 export function deriveSymptomRouting(
@@ -202,28 +208,40 @@ export function deriveSymptomRouting(
       primaryFamilyLabel: "Mixed / Unclear",
       secondaryFamilyLabels: [],
       isMixedUnclear: true,
+      familyScores: {},
+      insufficientData: true,
+      mixedSignals: true,
     };
   }
 
   const scored = typedSelected
-    .map((id) => ({ id, score: scoreFamily(id, responses) }))
+    .map((id) => ({ id, score: scoreFamily(id, responses), apiLabel: symptomFamilyOptions.find((family) => family.id === id)?.apiLabel ?? id }))
+    .filter((item): item is { id: SymptomFamilyId; score: number; apiLabel: string } => item.score !== null)
     .sort((a, b) => b.score - a.score);
 
-  const primary = scored[0];
-  const secondary = scored.slice(1);
-  const isMixedUnclear =
-    scored.length > 1 && Math.abs((scored[0]?.score ?? 0) - (scored[1]?.score ?? 0)) <= 1;
+  const top = scored[0];
+  const second = scored[1];
+  const highSecondaryCount = scored.filter((item) => item.score >= 1.75).length;
+  const insufficientData = scored.length !== typedSelected.length || scored.length === 0;
+  const mixedByScoreTie =
+    Boolean(top && second && top.score >= 2 && second.score >= 2 && top.score - second.score <= 0.5) ||
+    Boolean(highSecondaryCount >= 3 && (top?.score ?? 0) - (second?.score ?? 0) <= 0.75);
+  const hardPrimaryMissing = (top?.score ?? 0) < 2;
+  const isMixedUnclear = insufficientData || mixedByScoreTie || hardPrimaryMissing;
 
-  const primaryFamilyLabel =
-    symptomFamilyOptions.find((family) => family.id === primary.id)?.apiLabel ?? "Mixed / Unclear";
-  const secondaryFamilyLabels = secondary
-    .map((item) => symptomFamilyOptions.find((family) => family.id === item.id)?.apiLabel)
-    .filter((value): value is string => Boolean(value));
+  const primaryFamilyLabel = isMixedUnclear ? "Mixed / Unclear" : (top?.apiLabel ?? "Mixed / Unclear");
+  const secondaryFamilyLabels = scored
+    .filter((item) => item.apiLabel !== primaryFamilyLabel && item.score >= 1.75)
+    .map((item) => item.apiLabel);
+  const familyScores = Object.fromEntries(scored.map((item) => [item.apiLabel, item.score]));
 
   return {
     primaryFamilyLabel,
     secondaryFamilyLabels,
     isMixedUnclear,
+    familyScores,
+    insufficientData,
+    mixedSignals: mixedByScoreTie,
   };
 }
 
@@ -259,6 +277,18 @@ export interface DerivedSafetySubmission {
   harmOthers: boolean;
   psychosisMania: boolean;
   notes: string;
+  detailFlags: {
+    suicidalPlanOrIntent: boolean;
+    suicideAttemptPast3Months: boolean;
+    violentPlan: boolean;
+    violentTarget: boolean;
+    violentMeansAccess: boolean;
+    fireSetting: boolean;
+    weaponUseOrAccessForHarm: boolean;
+    severeIntoxicationWithdrawalOverdose: boolean;
+    severePsychosisManiaDisorganization: boolean;
+    abuseNeglectConcern: boolean;
+  };
 }
 
 export function deriveSafetySubmission(flags: SafetyDetailFlags): DerivedSafetySubmission {
@@ -296,6 +326,18 @@ export function deriveSafetySubmission(flags: SafetyDetailFlags): DerivedSafetyS
       noteReasons.length > 0
         ? `Detailed safety concerns: ${noteReasons.join("; ")}.`
         : "No additional high-risk safety qualifiers reported in detailed screen.",
+    detailFlags: {
+      suicidalPlanOrIntent: flags.suicidalPlanOrIntent,
+      suicideAttemptPast3Months: flags.recentSelfHarmOrAttempt,
+      violentPlan: flags.violentPlanOrTarget,
+      violentTarget: flags.violentPlanOrTarget,
+      violentMeansAccess: flags.violentPlanOrTarget,
+      fireSetting: flags.severeAggressionFireSettingWeapon,
+      weaponUseOrAccessForHarm: flags.severeAggressionFireSettingWeapon,
+      severeIntoxicationWithdrawalOverdose: flags.severeIntoxicationOrWithdrawal,
+      severePsychosisManiaDisorganization: flags.psychosisOrManiaSigns,
+      abuseNeglectConcern: flags.abuseOrNeglectConcern,
+    },
   };
 }
 
