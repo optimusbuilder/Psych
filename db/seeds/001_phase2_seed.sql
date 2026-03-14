@@ -17,9 +17,9 @@ INSERT INTO intake_sessions (id, patient_id, route_type, started_by_user_id, sta
 VALUES
   ('session-001', 'patient-001', 'patient_portal', 'user-intake-001', 'awaiting_review', '2026-03-14T09:15:00Z', '2026-03-14T09:22:00Z');
 
-INSERT INTO respondents (id, intake_session_id, type, relationship_to_patient, age_if_patient, created_at)
+INSERT INTO referring_providers (id, intake_session_id, provider_name, clinical_note, communication_profile, created_at)
 VALUES
-  ('respondent-001', 'session-001', 'caregiver', 'mother', NULL, '2026-03-14T09:16:00Z');
+  ('provider-001', 'session-001', 'Dr. Smith', 'Patient has been experiencing severe mood swings.', 'verbal_typical', '2026-03-14T09:16:00Z');
 
 INSERT INTO safety_assessments (
   id,

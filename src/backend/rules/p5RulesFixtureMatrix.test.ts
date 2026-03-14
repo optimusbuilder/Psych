@@ -96,10 +96,10 @@ const fixtureMatrix: Fixture[] = [
     expected: {
       ageBand: "school_age",
       severityTier: "moderate",
-      pathwayKey: "targeted_screening_and_clinician_review",
-      requiresClinicianReview: true,
-      urgencyLevel: "priority",
-      reasonCode: "ROUTE_TARGETED_SCREENING",
+      pathwayKey: "pcp_therapy_monitoring",
+      requiresClinicianReview: false,
+      urgencyLevel: "routine",
+      reasonCode: "ROUTE_PCP_THERAPY_MONITORING",
     },
   },
   {
@@ -127,9 +127,9 @@ const fixtureMatrix: Fixture[] = [
     expected: {
       ageBand: "adolescent",
       severityTier: "severe",
-      pathwayKey: "urgent_specialty_psychiatry",
+      pathwayKey: "targeted_screening_and_clinician_review",
       requiresClinicianReview: true,
-      urgencyLevel: "urgent",
+      urgencyLevel: "priority",
       reasonCode: "SEVERITY_SEVERE",
     },
   },
@@ -418,7 +418,7 @@ describe("P5-Rules-Fixture-Matrix", () => {
         role: "caregiver",
       });
       expect(submitOne.statusCode).toBe(200);
-      expect(submitOne.body.status).toBe("awaiting_review");
+      expect(submitOne.body.status).toBe("awaiting_instruments");
 
       const createTwo = await invoke(app, {
         method: "POST",
@@ -497,8 +497,8 @@ describe("P5-Rules-Fixture-Matrix", () => {
       for (const row of decisionRows.rows) {
         expect(row.engine_version).toBe(RULE_ENGINE_VERSION);
       }
-      expect(decisionRows.rows[0].urgency_level).toBe("priority");
-      expect(decisionRows.rows[0].requires_clinician_review).toBe(true);
+      expect(decisionRows.rows[0].urgency_level).toBe("routine");
+      expect(decisionRows.rows[0].requires_clinician_review).toBe(false);
       expect(decisionRows.rows[1].urgency_level).toBe("urgent");
       expect(decisionRows.rows[1].requires_clinician_review).toBe(true);
     } finally {

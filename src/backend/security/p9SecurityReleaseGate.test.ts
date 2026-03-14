@@ -151,10 +151,10 @@ async function createAwaitingReviewCaseForOrg(app: Application, linkedOrgId: str
         url: `/api/v1/intake-sessions/${sessionId}/functional-impact`,
         role: "caregiver",
         body: {
-          homeScore: 5,
-          schoolScore: 6,
-          peerScore: 4,
-          safetyLegalScore: 2,
+          homeScore: 8,
+          schoolScore: 8,
+          peerScore: 8,
+          safetyLegalScore: 4,
         },
       })
     ).statusCode,

@@ -116,6 +116,7 @@ export interface RulesInput {
     rapidWorsening?: boolean;
   } | null;
   referenceDate?: Date;
+  aiExtractedInsights?: string[];
 }
 
 export interface RulesResult {
@@ -134,6 +135,8 @@ export interface RulesResult {
   specialtyTrack: SpecialtyTrack;
   requiresClinicianReview: boolean;
   urgencyLevel: UrgencyLevel;
+  acuityScore: number;
+  aiInsights: string[];
   recommendation: string;
   reasonCodes: string[];
   insufficientData: boolean;
@@ -635,12 +638,14 @@ export function computeSeverity(
   severityTier: SeverityTier;
   highestImpairmentDomain: RulesResult["highestImpairmentDomain"];
   domainScores: Record<DomainKey, number> | null;
+  baseFunctionalAcuity: number;
 } {
   if (!functionalImpact) {
     return {
       severityTier: "unclear",
       highestImpairmentDomain: null,
       domainScores: null,
+      baseFunctionalAcuity: 0,
     };
   }
 
@@ -657,6 +662,7 @@ export function computeSeverity(
       severityTier: "unclear",
       highestImpairmentDomain: null,
       domainScores,
+      baseFunctionalAcuity: 0,
     };
   }
 
@@ -686,10 +692,19 @@ export function computeSeverity(
 
   const severityTier: SeverityTier = severe ? "severe" : moderate ? "moderate" : mild ? "mild" : "unclear";
 
+  // Calculate a base functional acuity score (0-40 points roughly from function)
+  const baseFunctionalAcuity = Math.round(
+    (domainScores.safety_legal * 1.5) +
+    (domainScores.school * 1.2) +
+    (domainScores.home * 1.0) +
+    (domainScores.peer * 0.8)
+  );
+
   return {
     severityTier,
     highestImpairmentDomain: highestDomain,
     domainScores,
+    baseFunctionalAcuity,
   };
 }
 
@@ -759,6 +774,49 @@ export function evaluateTriageRules(input: RulesInput): RulesResult {
   let requiresClinicianReview = false;
   let specialtyTrack: SpecialtyTrack = specialtyTrackForFamily(symptomSelection.primaryFamily);
 
+  // --- ACUITY SCORE CALCULATION ---
+  // Base Functional Acuity is 0-40.
+  let acuityScore = severity.baseFunctionalAcuity;
+
+  // Add symptom baseline
+  if (severity.severityTier === "severe") acuityScore += 30;
+  else if (severity.severityTier === "moderate") acuityScore += 15;
+  else if (severity.severityTier === "mild") acuityScore += 5;
+
+  // Cross-Domain Interaction Multipliers
+  // 1. Dual Diagnosis Risk
+  const hasSubstanceUse = symptomSelection.primaryFamily === "substance_use" || symptomSelection.secondaryFamilies.includes("substance_use");
+  const hasMoodOrAnxiety =
+    symptomSelection.primaryFamily === "mood_depression_irritability" ||
+    symptomSelection.secondaryFamilies.includes("mood_depression_irritability") ||
+    symptomSelection.primaryFamily === "anxiety_worry_panic_ocd" ||
+    symptomSelection.secondaryFamilies.includes("anxiety_worry_panic_ocd");
+
+  if (hasSubstanceUse && hasMoodOrAnxiety) {
+    acuityScore += 15;
+    reasonCodes.push("ACUITY_MULTIPLIER_DUAL_DIAGNOSIS");
+  }
+
+  // 2. High-Risk Behavioral Cascade
+  const hasConduct = symptomSelection.primaryFamily === "conduct_type_behaviors" || symptomSelection.secondaryFamilies.includes("conduct_type_behaviors");
+  if (hasConduct && (input.functionalImpact?.schoolScore ?? 0) + (input.functionalImpact?.safetyLegalScore ?? 0) > 10) {
+    acuityScore += 20;
+    reasonCodes.push("ACUITY_MULTIPLIER_BEHAVIORAL_CASCADE");
+  }
+
+  // 3. Trajectory Multipliers
+  if (input.functionalImpact?.rapidWorsening) {
+    acuityScore = Math.round(acuityScore * 1.2);
+    reasonCodes.push("TRAJECTORY_RAPID_WORSENING");
+  }
+
+  if (safety.gate === "immediate" || safety.gate === "urgent") {
+    acuityScore += 30; // Implicit bump for absolute safety
+  }
+
+  acuityScore = Math.min(100, Math.max(0, acuityScore));
+  // --------------------------------
+
   if (safety.gate === "immediate" || safety.gate === "urgent") {
     pathwayKey = "immediate_urgent_review";
     urgencyLevel = safety.gate === "immediate" ? "immediate" : "urgent";
@@ -783,39 +841,41 @@ export function evaluateTriageRules(input: RulesInput): RulesResult {
     specialtyTrack = "conduct_high_risk_track";
     reasonCodes.push("CONDUCT_HIGH_RISK_ESCALATION");
   } else {
-    if (severity.severityTier === "severe") {
+    // Dynamic Pathway Stratification based on Acuity Score
+    if (acuityScore >= 65) {
       pathwayKey = "urgent_specialty_psychiatry";
       urgencyLevel = "urgent";
       requiresClinicianReview = true;
-    } else if (severity.severityTier === "moderate") {
+    } else if (acuityScore >= 40) {
       pathwayKey = "targeted_screening_and_clinician_review";
       urgencyLevel = "priority";
       requiresClinicianReview = true;
-    } else if (severity.severityTier === "unclear") {
-      pathwayKey = "clinician_review_required";
-      urgencyLevel = "priority";
-      requiresClinicianReview = true;
-    } else {
+    } else if (acuityScore > 0 && acuityScore < 40 && severity.severityTier !== "unclear") {
       pathwayKey = "pcp_therapy_monitoring";
       urgencyLevel = "routine";
       requiresClinicianReview = false;
+    } else {
+      // fallback for unclear scenarios
+      pathwayKey = "clinician_review_required";
+      urgencyLevel = "priority";
+      requiresClinicianReview = true;
     }
 
     if (pathwayKey !== "urgent_specialty_psychiatry") {
       if (symptomSelection.primaryFamily === "substance_use") {
         pathwayKey = "substance_use_counseling_referral";
         urgencyLevel = maxUrgency(urgencyLevel, "priority");
-        requiresClinicianReview = requiresClinicianReview || severity.severityTier === "moderate";
+        requiresClinicianReview = requiresClinicianReview || acuityScore >= 40;
       } else if (symptomSelection.primaryFamily === "eating_body_image") {
         pathwayKey = "eating_disorder_referral";
         urgencyLevel = maxUrgency(urgencyLevel, "priority");
-        requiresClinicianReview = requiresClinicianReview || severity.severityTier === "moderate";
+        requiresClinicianReview = requiresClinicianReview || acuityScore >= 40;
       } else if (
         symptomSelection.primaryFamily === "autism_developmental_social" ||
         input.autismConcern === true
       ) {
         pathwayKey = "developmental_evaluation_referral";
-        urgencyLevel = maxUrgency(urgencyLevel, severity.severityTier === "moderate" ? "priority" : "routine");
+        urgencyLevel = maxUrgency(urgencyLevel, acuityScore >= 40 ? "priority" : "routine");
       }
     }
 
@@ -827,10 +887,7 @@ export function evaluateTriageRules(input: RulesInput): RulesResult {
     }
   }
 
-  if (input.functionalImpact?.rapidWorsening && severity.severityTier === "moderate") {
-    urgencyLevel = maxUrgency(urgencyLevel, "urgent");
-    reasonCodes.push("TRAJECTORY_RAPID_WORSENING");
-  } else if (input.functionalImpact?.rapidWorsening && severity.severityTier === "mild") {
+  if (input.functionalImpact?.rapidWorsening && acuityScore < 40) {
     reasonCodes.push("FOLLOW_UP_WINDOW_14_DAYS");
   }
 
@@ -854,6 +911,8 @@ export function evaluateTriageRules(input: RulesInput): RulesResult {
     specialtyTrack,
     requiresClinicianReview,
     urgencyLevel,
+    acuityScore,
+    aiInsights: input.aiExtractedInsights || [],
     recommendation: recommendationForPathway(pathwayKey),
     reasonCodes: uniqueReasonCodes,
     insufficientData: symptomSelection.insufficientData || severity.severityTier === "unclear",
@@ -869,39 +928,39 @@ export function rulesInputFromAggregate(aggregate: IntakeSessionAggregate): Rule
     autismConcern: aggregate.respondent?.autismConcern ?? false,
     safetyAssessment: aggregate.safetyAssessment
       ? {
-          suicidalRiskFlag: aggregate.safetyAssessment.suicidalRiskFlag,
-          violenceRiskFlag: aggregate.safetyAssessment.violenceRiskFlag,
-          psychosisManiaFlag: aggregate.safetyAssessment.psychosisManiaFlag,
-          requiresImmediateReview: aggregate.safetyAssessment.requiresImmediateReview,
-          escalationLevel:
-            aggregate.safetyAssessment.escalationLevel === "none" ||
+        suicidalRiskFlag: aggregate.safetyAssessment.suicidalRiskFlag,
+        violenceRiskFlag: aggregate.safetyAssessment.violenceRiskFlag,
+        psychosisManiaFlag: aggregate.safetyAssessment.psychosisManiaFlag,
+        requiresImmediateReview: aggregate.safetyAssessment.requiresImmediateReview,
+        escalationLevel:
+          aggregate.safetyAssessment.escalationLevel === "none" ||
             aggregate.safetyAssessment.escalationLevel === "urgent" ||
             aggregate.safetyAssessment.escalationLevel === "immediate"
-              ? aggregate.safetyAssessment.escalationLevel
-              : "none",
-          detailFlags: aggregate.safetyAssessment.detailFlags,
-        }
+            ? aggregate.safetyAssessment.escalationLevel
+            : "none",
+        detailFlags: aggregate.safetyAssessment.detailFlags,
+      }
       : null,
     symptomAssessment: aggregate.symptomAssessment
       ? {
-          primaryFamily: aggregate.symptomAssessment.primaryFamily,
-          secondaryFamilies: aggregate.symptomAssessment.secondaryFamilies,
-          isMixedUnclear: aggregate.symptomAssessment.isMixedUnclear,
-          familyScores: aggregate.symptomAssessment.familyScores,
-          mostImpairingConcern: aggregate.symptomAssessment.mostImpairingConcern,
-          insufficientData: aggregate.symptomAssessment.insufficientData,
-          mixedSignals: aggregate.symptomAssessment.mixedSignals,
-          conductRedFlags: aggregate.symptomAssessment.conductRedFlags,
-        }
+        primaryFamily: aggregate.symptomAssessment.primaryFamily,
+        secondaryFamilies: aggregate.symptomAssessment.secondaryFamilies,
+        isMixedUnclear: aggregate.symptomAssessment.isMixedUnclear,
+        familyScores: aggregate.symptomAssessment.familyScores,
+        mostImpairingConcern: aggregate.symptomAssessment.mostImpairingConcern,
+        insufficientData: aggregate.symptomAssessment.insufficientData,
+        mixedSignals: aggregate.symptomAssessment.mixedSignals,
+        conductRedFlags: aggregate.symptomAssessment.conductRedFlags,
+      }
       : null,
     functionalImpact: aggregate.functionalImpact
       ? {
-          homeScore: aggregate.functionalImpact.homeScore,
-          schoolScore: aggregate.functionalImpact.schoolScore,
-          peerScore: aggregate.functionalImpact.peerScore,
-          safetyLegalScore: aggregate.functionalImpact.safetyLegalScore,
-          rapidWorsening: aggregate.functionalImpact.rapidWorsening,
-        }
+        homeScore: aggregate.functionalImpact.homeScore,
+        schoolScore: aggregate.functionalImpact.schoolScore,
+        peerScore: aggregate.functionalImpact.peerScore,
+        safetyLegalScore: aggregate.functionalImpact.safetyLegalScore,
+        rapidWorsening: aggregate.functionalImpact.rapidWorsening,
+      }
       : null,
   };
 }

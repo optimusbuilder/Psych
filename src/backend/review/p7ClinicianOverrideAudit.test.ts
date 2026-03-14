@@ -143,10 +143,10 @@ async function createAwaitingReviewCase(app: Application) {
         url: `/api/v1/intake-sessions/${sessionId}/functional-impact`,
         role: "caregiver",
         body: {
-          homeScore: 4,
-          schoolScore: 5,
-          peerScore: 3,
-          safetyLegalScore: 1,
+          homeScore: 8,
+          schoolScore: 8,
+          peerScore: 8,
+          safetyLegalScore: 4,
         },
       })
     ).statusCode,

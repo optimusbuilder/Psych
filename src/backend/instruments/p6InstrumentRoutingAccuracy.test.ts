@@ -268,7 +268,7 @@ describe("P6-Instrument-Routing-Accuracy", () => {
         symptomFamily: "Mood / Depression / Irritability",
         scores: { homeScore: 4, schoolScore: 5, peerScore: 4, safetyLegalScore: 1 },
       });
-      expect(moodCase.submitStatus).toBe("awaiting_review");
+      expect(moodCase.submitStatus).toBe("awaiting_instruments");
 
       const moodRouted = await invoke(app, {
         method: "POST",

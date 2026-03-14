@@ -38,12 +38,11 @@ CREATE TABLE intake_sessions (
   submitted_at TIMESTAMPTZ
 );
 
-CREATE TABLE respondents (
+CREATE TABLE referring_providers (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL REFERENCES intake_sessions(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('patient', 'caregiver', 'clinician')),
-  relationship_to_patient TEXT,
-  age_if_patient INTEGER CHECK (age_if_patient >= 0 AND age_if_patient <= 25),
+  provider_name TEXT,
+  clinical_note TEXT NOT NULL,
   communication_profile TEXT CHECK (
     communication_profile IS NULL
     OR communication_profile IN ('verbal_typical', 'limited_verbal', 'nonverbal', 'unknown')

@@ -30,10 +30,9 @@ export const createSessionSchema = z.object({
   startedByUserId: z.string().optional(),
 });
 
-export const respondentSchema = z.object({
-  type: z.enum(["patient", "caregiver", "clinician"]),
-  relationshipToPatient: z.string().optional(),
-  ageIfPatient: z.number().int().min(0).max(25).optional(),
+export const referringProviderSchema = z.object({
+  providerName: z.string().optional(),
+  clinicalNote: z.string().min(1),
   communicationProfile: z
     .enum(["verbal_typical", "limited_verbal", "nonverbal", "unknown"])
     .optional(),
@@ -87,10 +86,28 @@ export const clinicianOverrideSchema = z.object({
   finalizeSession: z.boolean().default(true),
 });
 
+export const createReferralSchema = z.object({
+  patient: z.object({
+    firstName: z.string().min(1),
+    lastName: z.string().min(1),
+    dob: z.string().min(1),
+    sexAtBirth: z.enum(["female", "male", "intersex", "unknown"]).optional(),
+    guardianContact: z.string().optional(),
+    hospitalMrn: z.string().optional(),
+    linkedOrgId: z.string().optional(),
+  }),
+  referringProvider: referringProviderSchema,
+  safety: safetySchema,
+  symptoms: symptomSchema,
+  functionalImpact: functionalImpactSchema,
+  startedByUserId: z.string().optional(),
+});
+
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
-export type RespondentInput = z.infer<typeof respondentSchema>;
+export type ReferringProviderInput = z.infer<typeof referringProviderSchema>;
 export type SafetyInput = z.infer<typeof safetySchema>;
 export type SymptomInput = z.infer<typeof symptomSchema>;
 export type FunctionalImpactInput = z.infer<typeof functionalImpactSchema>;
 export type ScoreInstrumentInput = z.infer<typeof scoreInstrumentSchema>;
 export type ClinicianOverrideInput = z.infer<typeof clinicianOverrideSchema>;
+export type CreateReferralInput = z.infer<typeof createReferralSchema>;

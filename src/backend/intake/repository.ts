@@ -2,7 +2,7 @@ import type {
   ClinicianOverrideInput,
   CreateSessionInput,
   FunctionalImpactInput,
-  RespondentInput,
+  ReferringProviderInput,
   SafetyInput,
   ScoreInstrumentInput,
   SymptomInput,
@@ -16,6 +16,7 @@ import {
   type PathwayKey,
   type SpecialtyTrack,
 } from "../rules/engine";
+import { TriageAIService } from "../ai/service";
 import {
   buildDecisionUpdateFromInstrument,
   INSTRUMENT_ENGINE_VERSION,
@@ -75,11 +76,10 @@ export interface IntakeSessionAggregate {
     hospitalMrn: string | null;
     linkedOrgId: string | null;
   };
-  respondent: {
+  referringProvider: {
     id: string;
-    type: string;
-    relationshipToPatient: string | null;
-    ageIfPatient: number | null;
+    providerName: string | null;
+    clinicalNote: string;
     communicationProfile: CommunicationProfile;
     developmentalDelayConcern: boolean;
     autismConcern: boolean;
@@ -210,7 +210,7 @@ export interface ClinicianReviewHistoryRow {
 export interface ProviderCaseDetail {
   session: IntakeSessionAggregate["session"];
   patient: IntakeSessionAggregate["patient"];
-  respondent: IntakeSessionAggregate["respondent"];
+  referringProvider: IntakeSessionAggregate["referringProvider"];
   safetyAssessment: IntakeSessionAggregate["safetyAssessment"];
   symptomAssessment: IntakeSessionAggregate["symptomAssessment"];
   functionalImpact: IntakeSessionAggregate["functionalImpact"];
@@ -236,7 +236,7 @@ export interface UserAccessProfile {
 }
 
 export class IntakeRepository {
-  constructor(private readonly db: SqlClient) {}
+  constructor(private readonly db: SqlClient) { }
 
   async getUserAccessProfile(userId: string): Promise<UserAccessProfile | null> {
     const result = await this.db.query<{
@@ -399,37 +399,35 @@ export class IntakeRepository {
     };
   }
 
-  async saveRespondent(sessionId: string, input: RespondentInput) {
+  async saveReferringProvider(sessionId: string, input: ReferringProviderInput) {
     await this.db.query("BEGIN");
     try {
-      await this.db.query("DELETE FROM respondents WHERE intake_session_id = $1", [sessionId]);
-      const respondentId = buildId("respondent");
+      await this.db.query("DELETE FROM referring_providers WHERE intake_session_id = $1", [sessionId]);
+      const providerId = buildId("provider");
       await this.db.query(
         `
-          INSERT INTO respondents (
+          INSERT INTO referring_providers (
             id,
             intake_session_id,
-            type,
-            relationship_to_patient,
-            age_if_patient,
+            provider_name,
+            clinical_note,
             communication_profile,
             developmental_delay_concern,
             autism_concern
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7)
         `,
         [
-          respondentId,
+          providerId,
           sessionId,
-          input.type,
-          input.relationshipToPatient ?? null,
-          input.ageIfPatient ?? null,
+          input.providerName ?? null,
+          input.clinicalNote,
           input.communicationProfile ?? "unknown",
           input.developmentalDelayConcern ?? false,
           input.autismConcern ?? false,
         ],
       );
       await this.db.query("COMMIT");
-      return { id: respondentId };
+      return { id: providerId };
     } catch (error) {
       await this.db.query("ROLLBACK");
       throw error;
@@ -722,11 +720,10 @@ export class IntakeRepository {
     );
     const patient = patientResult.rows[0];
 
-    const respondentResult = await this.db.query<{
+    const providerResult = await this.db.query<{
       id: string;
-      type: string;
-      relationship_to_patient: string | null;
-      age_if_patient: number | null;
+      provider_name: string | null;
+      clinical_note: string;
       communication_profile: CommunicationProfile | null;
       developmental_delay_concern: boolean | null;
       autism_concern: boolean | null;
@@ -734,13 +731,12 @@ export class IntakeRepository {
       `
         SELECT
           id,
-          type,
-          relationship_to_patient,
-          age_if_patient,
+          provider_name,
+          clinical_note,
           communication_profile,
           developmental_delay_concern,
           autism_concern
-        FROM respondents
+        FROM referring_providers
         WHERE intake_session_id = $1
         ORDER BY created_at DESC
         LIMIT 1
@@ -846,57 +842,56 @@ export class IntakeRepository {
         hospitalMrn: patient.hospital_mrn,
         linkedOrgId: patient.linked_org_id,
       },
-      respondent:
-        respondentResult.rows.length > 0
+      referringProvider:
+        providerResult.rows.length > 0
           ? {
-              id: respondentResult.rows[0].id,
-              type: respondentResult.rows[0].type,
-              relationshipToPatient: respondentResult.rows[0].relationship_to_patient,
-              ageIfPatient: respondentResult.rows[0].age_if_patient,
-              communicationProfile: respondentResult.rows[0].communication_profile ?? "unknown",
-              developmentalDelayConcern:
-                respondentResult.rows[0].developmental_delay_concern ?? false,
-              autismConcern: respondentResult.rows[0].autism_concern ?? false,
-            }
+            id: providerResult.rows[0].id,
+            providerName: providerResult.rows[0].provider_name,
+            clinicalNote: providerResult.rows[0].clinical_note,
+            communicationProfile: providerResult.rows[0].communication_profile ?? "unknown",
+            developmentalDelayConcern:
+              providerResult.rows[0].developmental_delay_concern ?? false,
+            autismConcern: providerResult.rows[0].autism_concern ?? false,
+          }
           : null,
       safetyAssessment:
         safetyResult.rows.length > 0
           ? {
-              id: safetyResult.rows[0].id,
-              suicidalRiskFlag: safetyResult.rows[0].suicidal_risk_flag,
-              violenceRiskFlag: safetyResult.rows[0].violence_risk_flag,
-              psychosisManiaFlag: safetyResult.rows[0].psychosis_mania_flag,
-              escalationLevel: safetyResult.rows[0].escalation_level,
-              requiresImmediateReview: safetyResult.rows[0].requires_immediate_review,
-              detailFlags: safetyResult.rows[0].detail_flags_json ?? {},
-              notes: safetyResult.rows[0].notes,
-            }
+            id: safetyResult.rows[0].id,
+            suicidalRiskFlag: safetyResult.rows[0].suicidal_risk_flag,
+            violenceRiskFlag: safetyResult.rows[0].violence_risk_flag,
+            psychosisManiaFlag: safetyResult.rows[0].psychosis_mania_flag,
+            escalationLevel: safetyResult.rows[0].escalation_level,
+            requiresImmediateReview: safetyResult.rows[0].requires_immediate_review,
+            detailFlags: safetyResult.rows[0].detail_flags_json ?? {},
+            notes: safetyResult.rows[0].notes,
+          }
           : null,
       symptomAssessment:
         symptomResult.rows.length > 0
           ? {
-              id: symptomResult.rows[0].id,
-              primaryFamily: symptomResult.rows[0].primary_family,
-              secondaryFamilies: symptomResult.rows[0].secondary_families_json ?? [],
-              isMixedUnclear: symptomResult.rows[0].is_mixed_unclear,
-              familyScores: symptomResult.rows[0].family_scores_json ?? {},
-              mostImpairingConcern: symptomResult.rows[0].most_impairing_concern,
-              insufficientData: symptomResult.rows[0].insufficient_data,
-              mixedSignals: symptomResult.rows[0].mixed_signals,
-              conductRedFlags: symptomResult.rows[0].conduct_red_flags_json ?? {},
-            }
+            id: symptomResult.rows[0].id,
+            primaryFamily: symptomResult.rows[0].primary_family,
+            secondaryFamilies: symptomResult.rows[0].secondary_families_json ?? [],
+            isMixedUnclear: symptomResult.rows[0].is_mixed_unclear,
+            familyScores: symptomResult.rows[0].family_scores_json ?? {},
+            mostImpairingConcern: symptomResult.rows[0].most_impairing_concern,
+            insufficientData: symptomResult.rows[0].insufficient_data,
+            mixedSignals: symptomResult.rows[0].mixed_signals,
+            conductRedFlags: symptomResult.rows[0].conduct_red_flags_json ?? {},
+          }
           : null,
       functionalImpact:
         functionalResult.rows.length > 0
           ? {
-              id: functionalResult.rows[0].id,
-              homeScore: functionalResult.rows[0].home_score,
-              schoolScore: functionalResult.rows[0].school_score,
-              peerScore: functionalResult.rows[0].peer_score,
-              safetyLegalScore: functionalResult.rows[0].safety_legal_score,
-              overallSeverity: functionalResult.rows[0].overall_severity,
-              rapidWorsening: functionalResult.rows[0].rapid_worsening,
-            }
+            id: functionalResult.rows[0].id,
+            homeScore: functionalResult.rows[0].home_score,
+            schoolScore: functionalResult.rows[0].school_score,
+            peerScore: functionalResult.rows[0].peer_score,
+            safetyLegalScore: functionalResult.rows[0].safety_legal_score,
+            overallSeverity: functionalResult.rows[0].overall_severity,
+            rapidWorsening: functionalResult.rows[0].rapid_worsening,
+          }
           : null,
     };
   }
@@ -908,8 +903,8 @@ export class IntakeRepository {
     }
 
     const missing: string[] = [];
-    if (!aggregate.respondent) {
-      missing.push("respondent");
+    if (!aggregate.referringProvider) {
+      missing.push("referringProvider");
     }
     if (!aggregate.safetyAssessment) {
       missing.push("safetyAssessment");
@@ -931,7 +926,26 @@ export class IntakeRepository {
       };
     }
 
-    const decision = evaluateTriageRules(rulesInputFromAggregate(aggregate));
+    const rulesInput = rulesInputFromAggregate(aggregate);
+    const decision = evaluateTriageRules(rulesInput);
+
+    if (process.env.NODE_ENV !== "test" && process.env.GEMINI_API_KEY) {
+      try {
+        const aiSummary = await TriageAIService.generateClinicianSummary(rulesInput, decision);
+        if (aiSummary) {
+          decision.recommendation = `${decision.recommendation}\n\nAI Summary:\n${aiSummary}`;
+        }
+
+        const anomalyFlag = await TriageAIService.detectSubClinicalRisks(rulesInput, decision);
+        if (anomalyFlag) {
+          decision.reasonCodes.push('AI_FLAG_SUBCLINICAL_RISK');
+          decision.requiresClinicianReview = true;
+          decision.recommendation = `${decision.recommendation}\n\nAI Warning:\n${anomalyFlag}`;
+        }
+      } catch (err) {
+        console.error("Failed to run AI integrations during submitSession:", err);
+      }
+    }
 
     let nextStatus = "awaiting_instruments";
     if (decision.pathwayKey === "immediate_urgent_review" || decision.urgencyLevel === "immediate") {
@@ -1029,8 +1043,8 @@ export class IntakeRepository {
     }
 
     const safetyPositive = aggregate.safetyAssessment?.requiresImmediateReview === true;
-    if (!aggregate.respondent) {
-      missing.push("respondent");
+    if (!aggregate.referringProvider) {
+      missing.push("referringProvider");
     }
     if (!safetyPositive) {
       if (!aggregate.symptomAssessment) {
@@ -1589,7 +1603,7 @@ export class IntakeRepository {
     return {
       session: aggregate.session,
       patient: aggregate.patient,
-      respondent: aggregate.respondent,
+      referringProvider: aggregate.referringProvider,
       safetyAssessment: aggregate.safetyAssessment,
       symptomAssessment: aggregate.symptomAssessment,
       functionalImpact: aggregate.functionalImpact,
@@ -1606,11 +1620,11 @@ export class IntakeRepository {
           row.raw_score === null && row.interpretation === null
             ? null
             : {
-                rawScore: row.raw_score,
-                interpretation: row.interpretation,
-                cutoffTriggered: row.cutoff_triggered,
-                structuredJson: row.structured_json,
-              },
+              rawScore: row.raw_score,
+              interpretation: row.interpretation,
+              cutoffTriggered: row.cutoff_triggered,
+              structuredJson: row.structured_json,
+            },
       })),
       clinicianReviews,
       auditTrail,
