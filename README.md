@@ -33,6 +33,15 @@ Reference: `docs/engineering/local-postgres.md`
 npm run api:start
 ```
 
+## Family Referral MVP API (Hackathon)
+The family self-service flow is available at:
+- `POST /api/v1/family-referrals`
+- `GET /api/v1/family-referrals/:id`
+- `GET /api/v1/family-referrals/:id/pdf`
+- `POST /api/v1/family-referrals/:id/ai-explain`
+
+Reference: `docs/architecture/hackathon-family-backend-api.md`
+
 Frontend Phase 8 integration uses live `/api/v1/*` endpoints. In local development:
 - run backend on `http://localhost:4000`
 - run frontend on `http://localhost:8080` (Vite proxy forwards `/api` to backend)
