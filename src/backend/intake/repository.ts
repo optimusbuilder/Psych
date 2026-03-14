@@ -1,4 +1,5 @@
 import type {
+  ClinicianOverrideInput,
   CreateSessionInput,
   FunctionalImpactInput,
   RespondentInput,
@@ -157,6 +158,58 @@ export interface InstrumentScoreResultRow {
   } | null;
 }
 
+export type ReviewQueueStatus = "all" | "awaiting_review" | "flagged_urgent";
+
+export interface ReviewQueueCaseRow {
+  sessionId: string;
+  patientId: string;
+  patientName: string;
+  routeType: string;
+  status: string;
+  submittedAt: string | null;
+  createdAt: string;
+  latestDecision: {
+    recommendation: string;
+    requiresClinicianReview: boolean;
+    urgencyLevel: string;
+    engineVersion: string;
+    createdAt: string;
+  } | null;
+}
+
+export interface ClinicianReviewHistoryRow {
+  id: string;
+  intakeSessionId: string;
+  reviewerUserId: string | null;
+  overrideApplied: boolean;
+  finalDisposition: string;
+  rationale: string;
+  reviewedAt: string;
+  createdAt: string;
+}
+
+export interface ProviderCaseDetail {
+  session: IntakeSessionAggregate["session"];
+  patient: IntakeSessionAggregate["patient"];
+  respondent: IntakeSessionAggregate["respondent"];
+  safetyAssessment: IntakeSessionAggregate["safetyAssessment"];
+  symptomAssessment: IntakeSessionAggregate["symptomAssessment"];
+  functionalImpact: IntakeSessionAggregate["functionalImpact"];
+  latestDecision: ReviewQueueCaseRow["latestDecision"];
+  instrumentAssignments: Array<
+    InstrumentAssignmentRow & {
+      result: {
+        rawScore: number | null;
+        interpretation: string | null;
+        cutoffTriggered: boolean | null;
+        structuredJson: unknown;
+      } | null;
+    }
+  >;
+  clinicianReviews: ClinicianReviewHistoryRow[];
+  auditTrail: AuditLogRow[];
+}
+
 export class IntakeRepository {
   constructor(private readonly db: SqlClient) {}
 
@@ -223,6 +276,42 @@ export class IntakeRepository {
       [sessionId],
     );
     return result.rows.length > 0;
+  }
+
+  private async getLatestDecisionForSession(sessionId: string) {
+    const result = await this.db.query<{
+      recommendation: string;
+      requires_clinician_review: boolean;
+      urgency_level: string;
+      engine_version: string;
+      created_at: string;
+    }>(
+      `
+        SELECT
+          recommendation,
+          requires_clinician_review,
+          urgency_level,
+          engine_version,
+          created_at
+        FROM triage_decisions
+        WHERE intake_session_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return {
+      recommendation: result.rows[0].recommendation,
+      requiresClinicianReview: result.rows[0].requires_clinician_review,
+      urgencyLevel: result.rows[0].urgency_level,
+      engineVersion: result.rows[0].engine_version,
+      createdAt: result.rows[0].created_at,
+    };
   }
 
   async saveRespondent(sessionId: string, input: RespondentInput) {
@@ -1125,6 +1214,419 @@ export class IntakeRepository {
           decisionUpdated,
           decisionUpdate,
         } satisfies InstrumentScoreResultRow,
+      };
+    } catch (error) {
+      await this.db.query("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async listReviewQueue(
+    status: ReviewQueueStatus = "all",
+    limit = 25,
+  ): Promise<ReviewQueueCaseRow[]> {
+    let result: {
+      rows: Array<{
+        session_id: string;
+        patient_id: string;
+        first_name: string;
+        last_name: string;
+        route_type: string;
+        status: string;
+        submitted_at: string | null;
+        created_at: string;
+      }>;
+    };
+
+    if (status === "all") {
+      result = await this.db.query<{
+        session_id: string;
+        patient_id: string;
+        first_name: string;
+        last_name: string;
+        route_type: string;
+        status: string;
+        submitted_at: string | null;
+        created_at: string;
+      }>(
+        `
+          SELECT
+            s.id AS session_id,
+            s.patient_id,
+            p.first_name,
+            p.last_name,
+            s.route_type,
+            s.status,
+            s.submitted_at,
+            s.created_at
+          FROM intake_sessions s
+          JOIN patients p
+            ON p.id = s.patient_id
+          WHERE s.status IN ('awaiting_review', 'flagged_urgent')
+          ORDER BY COALESCE(s.submitted_at, s.created_at) DESC
+          LIMIT $1
+        `,
+        [limit],
+      );
+    } else {
+      result = await this.db.query<{
+        session_id: string;
+        patient_id: string;
+        first_name: string;
+        last_name: string;
+        route_type: string;
+        status: string;
+        submitted_at: string | null;
+        created_at: string;
+      }>(
+        `
+          SELECT
+            s.id AS session_id,
+            s.patient_id,
+            p.first_name,
+            p.last_name,
+            s.route_type,
+            s.status,
+            s.submitted_at,
+            s.created_at
+          FROM intake_sessions s
+          JOIN patients p
+            ON p.id = s.patient_id
+          WHERE s.status = $1
+          ORDER BY COALESCE(s.submitted_at, s.created_at) DESC
+          LIMIT $2
+        `,
+        [status, limit],
+      );
+    }
+
+    const queueItems = await Promise.all(
+      result.rows.map(async (row) => ({
+        sessionId: row.session_id,
+        patientId: row.patient_id,
+        patientName: `${row.first_name} ${row.last_name}`,
+        routeType: row.route_type,
+        status: row.status,
+        submittedAt: row.submitted_at,
+        createdAt: row.created_at,
+        latestDecision: await this.getLatestDecisionForSession(row.session_id),
+      })),
+    );
+
+    return queueItems;
+  }
+
+  async listClinicianReviewsForSession(sessionId: string): Promise<ClinicianReviewHistoryRow[]> {
+    const result = await this.db.query<{
+      id: string;
+      intake_session_id: string;
+      reviewer_user_id: string | null;
+      override_applied: boolean;
+      final_disposition: string;
+      rationale: string;
+      reviewed_at: string;
+      created_at: string;
+    }>(
+      `
+        SELECT
+          id,
+          intake_session_id,
+          reviewer_user_id,
+          override_applied,
+          final_disposition,
+          rationale,
+          reviewed_at,
+          created_at
+        FROM clinician_reviews
+        WHERE intake_session_id = $1
+        ORDER BY reviewed_at DESC
+      `,
+      [sessionId],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      intakeSessionId: row.intake_session_id,
+      reviewerUserId: row.reviewer_user_id,
+      overrideApplied: row.override_applied,
+      finalDisposition: row.final_disposition,
+      rationale: row.rationale,
+      reviewedAt: row.reviewed_at,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async getProviderCaseDetail(sessionId: string): Promise<ProviderCaseDetail | null> {
+    const aggregate = await this.getSessionAggregate(sessionId);
+    if (!aggregate) {
+      return null;
+    }
+
+    const latestDecision = await this.getLatestDecisionForSession(sessionId);
+    const assignmentRows = await this.db.query<{
+      id: string;
+      intake_session_id: string;
+      instrument_name: string;
+      assigned_to: InstrumentAssignedTo;
+      status: string;
+      due_at: string | null;
+      created_at: string;
+      raw_score: number | null;
+      interpretation: string | null;
+      cutoff_triggered: boolean | null;
+      structured_json: unknown;
+    }>(
+      `
+        SELECT
+          ia.id,
+          ia.intake_session_id,
+          ia.instrument_name,
+          ia.assigned_to,
+          ia.status,
+          ia.due_at,
+          ia.created_at,
+          ir.raw_score,
+          ir.interpretation,
+          ir.cutoff_triggered,
+          ir.structured_json
+        FROM instrument_assignments ia
+        LEFT JOIN instrument_results ir
+          ON ir.assignment_id = ia.id
+        WHERE ia.intake_session_id = $1
+        ORDER BY ia.created_at ASC
+      `,
+      [sessionId],
+    );
+
+    const clinicianReviews = await this.listClinicianReviewsForSession(sessionId);
+    const auditTrail = await this.listAuditLogsForSession(sessionId);
+
+    return {
+      session: aggregate.session,
+      patient: aggregate.patient,
+      respondent: aggregate.respondent,
+      safetyAssessment: aggregate.safetyAssessment,
+      symptomAssessment: aggregate.symptomAssessment,
+      functionalImpact: aggregate.functionalImpact,
+      latestDecision,
+      instrumentAssignments: assignmentRows.rows.map((row) => ({
+        id: row.id,
+        intakeSessionId: row.intake_session_id,
+        instrumentName: row.instrument_name,
+        assignedTo: row.assigned_to,
+        status: row.status,
+        dueAt: row.due_at,
+        createdAt: row.created_at,
+        result:
+          row.raw_score === null && row.interpretation === null
+            ? null
+            : {
+                rawScore: row.raw_score,
+                interpretation: row.interpretation,
+                cutoffTriggered: row.cutoff_triggered,
+                structuredJson: row.structured_json,
+              },
+      })),
+      clinicianReviews,
+      auditTrail,
+    };
+  }
+
+  async applyClinicianReview(
+    sessionId: string,
+    input: ClinicianOverrideInput,
+    actorUserId: string | null = null,
+  ) {
+    const sessionExists = await this.ensureSessionExists(sessionId);
+    if (!sessionExists) {
+      return null;
+    }
+
+    const latestDecision = await this.getLatestDecisionForSession(sessionId);
+    const currentUrgency = latestDecision?.urgencyLevel ?? "priority";
+
+    let actorIdForReview: string | null = actorUserId;
+    if (actorUserId) {
+      const actorLookup = await this.db.query<{ id: string }>(
+        "SELECT id FROM users WHERE id = $1",
+        [actorUserId],
+      );
+      actorIdForReview = actorLookup.rows.length > 0 ? actorUserId : null;
+    }
+
+    await this.db.query("BEGIN");
+    try {
+      const reviewId = buildId("review");
+      const review = await this.db.query<{
+        id: string;
+        intake_session_id: string;
+        reviewer_user_id: string | null;
+        override_applied: boolean;
+        final_disposition: string;
+        rationale: string;
+        reviewed_at: string;
+        created_at: string;
+      }>(
+        `
+          INSERT INTO clinician_reviews (
+            id,
+            intake_session_id,
+            reviewer_user_id,
+            override_applied,
+            final_disposition,
+            rationale,
+            reviewed_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,NOW())
+          RETURNING
+            id,
+            intake_session_id,
+            reviewer_user_id,
+            override_applied,
+            final_disposition,
+            rationale,
+            reviewed_at,
+            created_at
+        `,
+        [
+          reviewId,
+          sessionId,
+          actorIdForReview,
+          input.overrideApplied,
+          input.finalDisposition,
+          input.rationale,
+        ],
+      );
+
+      await this.db.query(
+        `
+          INSERT INTO triage_decisions (
+            id,
+            intake_session_id,
+            recommendation,
+            requires_clinician_review,
+            urgency_level,
+            engine_version
+          ) VALUES ($1,$2,$3,$4,$5,$6)
+        `,
+        [
+          buildId("decision"),
+          sessionId,
+          input.finalDisposition,
+          false,
+          currentUrgency,
+          "clinician-review-v1.0.0",
+        ],
+      );
+
+      let sessionStatus = (await this.db.query<{ status: string }>(
+        "SELECT status FROM intake_sessions WHERE id = $1",
+        [sessionId],
+      )).rows[0]?.status ?? "awaiting_review";
+
+      if (input.finalizeSession) {
+        const sessionUpdate = await this.db.query<{ status: string }>(
+          `
+            UPDATE intake_sessions
+            SET status = 'completed'
+            WHERE id = $1
+            RETURNING status
+          `,
+          [sessionId],
+        );
+        sessionStatus = sessionUpdate.rows[0].status;
+      }
+
+      await this.db.query(
+        `
+          INSERT INTO audit_logs (
+            id,
+            entity_type,
+            entity_id,
+            action,
+            actor_user_id,
+            metadata_json
+          ) VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+        `,
+        [
+          buildId("audit"),
+          "intake_session",
+          sessionId,
+          "clinician_review_recorded",
+          actorIdForReview,
+          JSON.stringify({
+            reviewId,
+            overrideApplied: input.overrideApplied,
+            finalDisposition: input.finalDisposition,
+          }),
+        ],
+      );
+
+      if (input.overrideApplied) {
+        await this.db.query(
+          `
+            INSERT INTO audit_logs (
+              id,
+              entity_type,
+              entity_id,
+              action,
+              actor_user_id,
+              metadata_json
+            ) VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+          `,
+          [
+            buildId("audit"),
+            "intake_session",
+            sessionId,
+            "override_applied",
+            actorIdForReview,
+            JSON.stringify({
+              reviewId,
+              rationale: input.rationale,
+            }),
+          ],
+        );
+      }
+
+      if (input.finalizeSession) {
+        await this.db.query(
+          `
+            INSERT INTO audit_logs (
+              id,
+              entity_type,
+              entity_id,
+              action,
+              actor_user_id,
+              metadata_json
+            ) VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+          `,
+          [
+            buildId("audit"),
+            "intake_session",
+            sessionId,
+            "disposition_finalized",
+            actorIdForReview,
+            JSON.stringify({
+              reviewId,
+              finalDisposition: input.finalDisposition,
+            }),
+          ],
+        );
+      }
+
+      await this.db.query("COMMIT");
+
+      return {
+        review: {
+          id: review.rows[0].id,
+          intakeSessionId: review.rows[0].intake_session_id,
+          reviewerUserId: review.rows[0].reviewer_user_id,
+          overrideApplied: review.rows[0].override_applied,
+          finalDisposition: review.rows[0].final_disposition,
+          rationale: review.rows[0].rationale,
+          reviewedAt: review.rows[0].reviewed_at,
+          createdAt: review.rows[0].created_at,
+        },
+        sessionStatus,
       };
     } catch (error) {
       await this.db.query("ROLLBACK");

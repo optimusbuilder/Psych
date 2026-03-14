@@ -4,9 +4,12 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, CheckCircle2, Clock, FileText, Stethoscope } from "lucide-react";
 import type { IntakeData } from "@/pages/IntakePage";
 import { useNavigate } from "react-router-dom";
+import type { IntakeSubmitResponse } from "@/lib/api";
 
 interface IntakeRecommendationProps {
   data: IntakeData;
+  submission: IntakeSubmitResponse | null;
+  sessionId: string | null;
   onBack: () => void;
 }
 
@@ -38,8 +41,17 @@ function getRecommendation(data: IntakeData) {
   };
 }
 
-export function IntakeRecommendation({ data, onBack }: IntakeRecommendationProps) {
-  const rec = getRecommendation(data);
+export function IntakeRecommendation({ data, submission, sessionId, onBack }: IntakeRecommendationProps) {
+  const localRec = getRecommendation(data);
+  const rec = submission?.decision
+    ? {
+        title: "Live Triage Recommendation",
+        description: submission.decision.recommendation,
+      }
+    : {
+        title: localRec.title,
+        description: localRec.description,
+      };
   const navigate = useNavigate();
 
   return (
@@ -59,10 +71,17 @@ export function IntakeRecommendation({ data, onBack }: IntakeRecommendationProps
 
       <motion.div
         variants={itemVariants}
-        className={`border-l-4 ${rec.color} p-6 rounded-r-2xl mb-6`}
+        className="border-l-4 border-primary bg-primary/5 p-6 rounded-r-2xl mb-6"
       >
         <h3 className="font-semibold text-foreground mb-2">{rec.title}</h3>
         <p className="text-sm text-foreground/80 leading-relaxed">{rec.description}</p>
+        {submission?.decision && (
+          <div className="mt-3 text-xs text-muted-foreground space-y-1">
+            <p>Urgency: {submission.decision.urgencyLevel}</p>
+            <p>Pathway: {submission.decision.pathwayKey}</p>
+            {sessionId && <p>Case ID: {sessionId}</p>}
+          </div>
+        )}
       </motion.div>
 
       <motion.h3 variants={itemVariants} className="text-lg font-medium text-foreground mb-4">
@@ -90,8 +109,8 @@ export function IntakeRecommendation({ data, onBack }: IntakeRecommendationProps
         <Button variant="ghost" onClick={onBack} className="gap-2">
           <ArrowLeft size={16} /> Back
         </Button>
-        <Button onClick={() => navigate("/")} className="gap-2 rounded-xl">
-          Share with Care Team
+        <Button onClick={() => navigate("/provider/cases")} className="gap-2 rounded-xl">
+          View Provider Queue
         </Button>
       </motion.div>
     </motion.div>

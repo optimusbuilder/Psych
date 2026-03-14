@@ -1,13 +1,19 @@
 import { motion } from "framer-motion";
 import { containerVariants, itemVariants } from "@/lib/motionVariants";
-import { mockCases } from "@/data/mockData";
 import { RiskBadge } from "@/components/RiskBadge";
 import { AlertTriangle, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { fetchUrgentCases } from "@/lib/api";
+import { toPatientInitials } from "@/lib/providerMappers";
 
 export default function ProviderUrgent() {
-  const urgentCases = mockCases.filter((c) => c.riskLevel === "high");
+  const urgentQuery = useQuery({
+    queryKey: ["provider", "urgentCases"],
+    queryFn: fetchUrgentCases,
+  });
+  const urgentCases = urgentQuery.data?.cases ?? [];
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="max-w-4xl mx-auto">
@@ -18,6 +24,12 @@ export default function ProviderUrgent() {
       <motion.p variants={itemVariants} className="text-muted-foreground mb-6">
         Cases with active safety flags requiring immediate review.
       </motion.p>
+
+      {urgentQuery.isLoading && (
+        <motion.div variants={itemVariants} className="text-sm text-muted-foreground mb-4">
+          Loading urgent cases...
+        </motion.div>
+      )}
 
       {urgentCases.length === 0 ? (
         <motion.div variants={itemVariants} className="text-center py-16">
@@ -34,26 +46,32 @@ export default function ProviderUrgent() {
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-risk-high-bg flex items-center justify-center">
-                    <AlertTriangle className="w-5 h-5 text-urgent" />
+                    <span className="text-xs font-semibold text-urgent">
+                      {toPatientInitials(c.patientName)}
+                    </span>
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">{c.patientName}</h3>
-                    <p className="text-sm text-muted-foreground">{c.alertType} · Age {c.age}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {c.escalationLevel} escalation
+                    </p>
                   </div>
                 </div>
-                <RiskBadge level={c.riskLevel} />
+                <RiskBadge level="high" />
               </div>
 
               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
                 <Clock size={12} />
-                <span>Flagged {c.flaggedAt}</span>
+                <span>Flagged {new Date(c.createdAt).toLocaleString()}</span>
               </div>
 
-              <p className="text-sm text-foreground/80 mb-4">{c.summary}</p>
+              <p className="text-sm text-foreground/80 mb-4">
+                Safety-positive case in urgent queue. Immediate clinician attention required.
+              </p>
 
               <div className="flex gap-2">
                 <Button asChild size="sm" className="rounded-xl">
-                  <Link to={`/provider/cases/${c.id}`}>Review Case</Link>
+                  <Link to={`/provider/cases/${c.sessionId}`}>Review Case</Link>
                 </Button>
               </div>
             </motion.div>

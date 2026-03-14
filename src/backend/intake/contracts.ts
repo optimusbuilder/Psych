@@ -47,9 +47,17 @@ export const scoreInstrumentSchema = z.object({
   structuredJson: z.record(z.any()).optional(),
 });
 
+export const clinicianOverrideSchema = z.object({
+  overrideApplied: z.boolean().default(true),
+  finalDisposition: z.string().min(1),
+  rationale: z.string().min(1),
+  finalizeSession: z.boolean().default(true),
+});
+
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export type RespondentInput = z.infer<typeof respondentSchema>;
 export type SafetyInput = z.infer<typeof safetySchema>;
 export type SymptomInput = z.infer<typeof symptomSchema>;
 export type FunctionalImpactInput = z.infer<typeof functionalImpactSchema>;
 export type ScoreInstrumentInput = z.infer<typeof scoreInstrumentSchema>;
+export type ClinicianOverrideInput = z.infer<typeof clinicianOverrideSchema>;

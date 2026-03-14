@@ -1,21 +1,55 @@
 import { motion } from "framer-motion";
 import { containerVariants, itemVariants } from "@/lib/motionVariants";
-import { dashboardStats, mockCases } from "@/data/mockData";
 import { RiskBadge } from "@/components/RiskBadge";
 import { AlertTriangle, FileText, Clock, CheckCircle2, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ClinicalPulse } from "@/components/provider/ClinicalPulse";
-
-const statCards = [
-  { label: "Urgent Cases", value: dashboardStats.urgentCases, icon: AlertTriangle, accent: "text-urgent" },
-  { label: "New Referrals", value: dashboardStats.newReferrals, icon: FileText, accent: "text-primary" },
-  { label: "Awaiting Review", value: dashboardStats.awaitingReview, icon: Clock, accent: "text-risk-moderate" },
-  { label: "Completed Today", value: dashboardStats.completedToday, icon: CheckCircle2, accent: "text-secondary" },
-];
+import { useQuery } from "@tanstack/react-query";
+import { fetchReviewQueue, fetchUrgentCases } from "@/lib/api";
+import { reviewCaseToUi, toPatientInitials } from "@/lib/providerMappers";
 
 export default function ProviderDashboard() {
-  const urgentCases = mockCases.filter((c) => c.riskLevel === "high");
-  const recentCases = mockCases.slice(0, 4);
+  const reviewQueueQuery = useQuery({
+    queryKey: ["provider", "reviewQueue", "all"],
+    queryFn: () => fetchReviewQueue("all"),
+  });
+  const urgentQuery = useQuery({
+    queryKey: ["provider", "urgentCases"],
+    queryFn: fetchUrgentCases,
+  });
+
+  const cases = (reviewQueueQuery.data?.cases ?? []).map(reviewCaseToUi);
+  const recentCases = cases.slice(0, 4);
+  const awaitingReview = (reviewQueueQuery.data?.cases ?? []).filter(
+    (caseItem) => caseItem.status === "awaiting_review",
+  ).length;
+  const newReferrals = (reviewQueueQuery.data?.cases ?? []).filter((caseItem) => {
+    const created = new Date(caseItem.createdAt).getTime();
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    return created >= oneDayAgo;
+  }).length;
+
+  const statCards = [
+    {
+      label: "Urgent Cases",
+      value: urgentQuery.data?.count ?? 0,
+      icon: AlertTriangle,
+      accent: "text-urgent",
+    },
+    { label: "New Referrals", value: newReferrals, icon: FileText, accent: "text-primary" },
+    {
+      label: "Awaiting Review",
+      value: awaitingReview,
+      icon: Clock,
+      accent: "text-risk-moderate",
+    },
+    {
+      label: "Completed Today",
+      value: 0,
+      icon: CheckCircle2,
+      accent: "text-secondary",
+    },
+  ];
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="max-w-6xl mx-auto">
@@ -53,6 +87,9 @@ export default function ProviderDashboard() {
             </Link>
           </div>
           <div className="space-y-3">
+            {reviewQueueQuery.isLoading && (
+              <div className="text-sm text-muted-foreground">Loading live queue...</div>
+            )}
             {recentCases.map((c) => (
               <Link
                 key={c.id}
@@ -61,11 +98,11 @@ export default function ProviderDashboard() {
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
-                    {c.patientName.split(" ").map(n => n[0]).join("")}
+                    {toPatientInitials(c.patientName)}
                   </div>
                   <div>
                     <p className="text-sm font-medium text-foreground">{c.patientName}</p>
-                    <p className="text-xs text-muted-foreground">{c.primaryConcern} · Age {c.age}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-1">{c.primaryConcern}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -74,6 +111,9 @@ export default function ProviderDashboard() {
                 </div>
               </Link>
             ))}
+            {!reviewQueueQuery.isLoading && recentCases.length === 0 && (
+              <div className="text-sm text-muted-foreground">No queue cases yet.</div>
+            )}
           </div>
         </motion.div>
 

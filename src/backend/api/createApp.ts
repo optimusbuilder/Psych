@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  clinicianOverrideSchema,
   createSessionSchema,
   functionalImpactSchema,
   respondentSchema,
@@ -348,6 +349,70 @@ export function createBackendApp(db: SqlClient) {
         count: cases.length,
         cases,
       });
+    },
+  );
+
+  app.get(
+    "/api/v1/provider/review-queue",
+    requireRoles([...providerRoles]),
+    async (req, res) => {
+      const limitParam = req.query.limit;
+      const parsedLimit =
+        typeof limitParam === "string" ? Number.parseInt(limitParam, 10) : NaN;
+      const limit =
+        Number.isFinite(parsedLimit) && parsedLimit > 0 && parsedLimit <= 100
+          ? parsedLimit
+          : 25;
+
+      const statusParam = req.query.status;
+      const status =
+        statusParam === "awaiting_review" || statusParam === "flagged_urgent"
+          ? statusParam
+          : "all";
+
+      const cases = await repository.listReviewQueue(status, limit);
+      return res.status(200).json({
+        status,
+        count: cases.length,
+        cases,
+      });
+    },
+  );
+
+  app.get(
+    "/api/v1/provider/cases/:id",
+    requireRoles([...providerRoles]),
+    async (req, res) => {
+      const detail = await repository.getProviderCaseDetail(req.params.id);
+      if (!detail) {
+        return res.status(404).json({ error: "SessionNotFound" });
+      }
+      return res.status(200).json(detail);
+    },
+  );
+
+  app.post(
+    "/api/v1/provider/cases/:id/override",
+    requireRoles([...providerRoles]),
+    async (req, res) => {
+      const parseResult = clinicianOverrideSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "ValidationError",
+          issues: parseResult.error.issues,
+        });
+      }
+
+      const reviewResult = await repository.applyClinicianReview(
+        req.params.id,
+        parseResult.data,
+        getActorUserId(req),
+      );
+      if (!reviewResult) {
+        return res.status(404).json({ error: "SessionNotFound" });
+      }
+
+      return res.status(200).json(reviewResult);
     },
   );
 

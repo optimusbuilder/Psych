@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 interface PatientInfo {
+  firstName: string;
+  lastName: string;
   age: string;
   gender: string;
   grade: string;
@@ -51,6 +53,27 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
       </motion.p>
 
       <div className="space-y-5">
+        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>First Name</Label>
+            <Input
+              placeholder="e.g. Ava"
+              value={info.firstName}
+              onChange={(e) => update("firstName", e.target.value)}
+              className="rounded-xl"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Last Name</Label>
+            <Input
+              placeholder="e.g. Chen"
+              value={info.lastName}
+              onChange={(e) => update("lastName", e.target.value)}
+              className="rounded-xl"
+            />
+          </div>
+        </motion.div>
+
         <motion.div variants={itemVariants} className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Age</Label>
@@ -117,7 +140,11 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
         <Button variant="ghost" onClick={onBack} className="gap-2">
           <ArrowLeft size={16} /> Back
         </Button>
-        <Button onClick={onNext} disabled={!info.age || !info.concern} className="gap-2 rounded-xl">
+        <Button
+          onClick={onNext}
+          disabled={!info.firstName || !info.lastName || !info.age || !info.concern}
+          className="gap-2 rounded-xl"
+        >
           Continue <ArrowRight size={16} />
         </Button>
       </motion.div>

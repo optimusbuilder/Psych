@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
-import type { RiskLevel } from "@/data/mockData";
+
+export type RiskLevel = "low" | "moderate" | "high";
 
 interface RiskBadgeProps {
   level: RiskLevel;
