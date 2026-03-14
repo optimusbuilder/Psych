@@ -17,6 +17,7 @@
     "test:phase5": "vitest run src/backend/rules/p5RulesFixtureMatrix.test.ts",
     "test:phase6": "vitest run src/backend/instruments/p6InstrumentRoutingAccuracy.test.ts",
     "test:phase7": "vitest run src/backend/review/p7ClinicianOverrideAudit.test.ts",
+    "test:phase8": "vitest run src/frontend/p8FrontendLiveFlow.test.tsx",
     "api:start": "tsx src/backend/api/server.ts",
     "db:up": "bash scripts/db/up.sh",
     "db:down": "bash scripts/db/down.sh",

@@ -142,7 +142,7 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
         </Button>
         <Button
           onClick={onNext}
-          disabled={!info.firstName || !info.lastName || !info.age || !info.concern}
+          disabled={!info.firstName || !info.lastName || !info.age}
           className="gap-2 rounded-xl"
         >
           Continue <ArrowRight size={16} />

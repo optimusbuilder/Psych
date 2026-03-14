@@ -33,6 +33,10 @@ Reference: `docs/engineering/local-postgres.md`
 npm run api:start
 ```
 
+Frontend Phase 8 integration uses live `/api/v1/*` endpoints. In local development:
+- run backend on `http://localhost:4000`
+- run frontend on `http://localhost:8080` (Vite proxy forwards `/api` to backend)
+
 ## Delivery Plan by Phase
 
 Each phase has:

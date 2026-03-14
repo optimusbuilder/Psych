@@ -14,4 +14,21 @@ if (typeof window !== "undefined") {
       dispatchEvent: () => {},
     }),
   });
+
+  if (!("ResizeObserver" in window)) {
+    class MockResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+
+    Object.defineProperty(window, "ResizeObserver", {
+      writable: true,
+      value: MockResizeObserver,
+    });
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      writable: true,
+      value: MockResizeObserver,
+    });
+  }
 }
