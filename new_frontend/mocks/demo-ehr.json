@@ -1,0 +1,53 @@
+{
+  "ehrPatients": [
+    {
+      "lookupKey": "maya_torres_2013-08-24",
+      "patientId": "EHR-104772",
+      "childName": "Maya Torres",
+      "dob": "2013-08-24",
+      "guardianName": "Elena Torres",
+      "payer": "BlueCross PPO",
+      "memberId": "BCP-882104",
+      "networkStatus": "in_network"
+    },
+    {
+      "lookupKey": "jaylen_brooks_2010-11-03",
+      "patientId": "EHR-220991",
+      "childName": "Jaylen Brooks",
+      "dob": "2010-11-03",
+      "guardianName": "Monica Brooks",
+      "payer": "United Behavioral HMO",
+      "memberId": "UBH-407731",
+      "networkStatus": "in_network"
+    },
+    {
+      "lookupKey": "new_patient",
+      "patientId": null,
+      "childName": null,
+      "dob": null,
+      "guardianName": null,
+      "payer": null,
+      "memberId": null,
+      "networkStatus": null
+    }
+  ],
+  "eligibilityRules": [
+    {
+      "payer": "BlueCross PPO",
+      "status": "ELIGIBLE",
+      "authRequired": false
+    },
+    {
+      "payer": "United Behavioral HMO",
+      "status": "NEEDS_AUTH",
+      "authRequired": true,
+      "authCaseId": "AUTH-PEND-4421",
+      "expectedTurnaroundHours": 24
+    },
+    {
+      "payer": "Out-of-network Bronze",
+      "status": "COVERAGE_MISMATCH",
+      "authRequired": false
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "version": "demo-v1",
+  "timezone": "America/New_York",
+  "routingMap": [
+    {
+      "specialistType": "Pediatric Psychologist",
+      "primaryProviderId": "prov-park",
+      "fallbackProviderIds": ["prov-tran"]
+    },
+    {
+      "specialistType": "Child & Adolescent Psychiatrist",
+      "primaryProviderId": "prov-bennett",
+      "fallbackProviderIds": ["prov-tran"]
+    },
+    {
+      "specialistType": "Trauma-Specialized Therapist",
+      "primaryProviderId": "prov-reed",
+      "fallbackProviderIds": ["prov-park"]
+    },
+    {
+      "specialistType": "Developmental-Behavioral Pediatrician",
+      "primaryProviderId": "prov-patel",
+      "fallbackProviderIds": ["prov-tran"]
+    },
+    {
+      "specialistType": "Pediatric Psychologist (Comprehensive Evaluation)",
+      "primaryProviderId": "prov-tran",
+      "fallbackProviderIds": ["prov-park"]
+    },
+    {
+      "specialistType": "Adolescent Substance Use Program",
+      "primaryProviderId": "prov-bennett",
+      "fallbackProviderIds": ["prov-tran"]
+    },
+    {
+      "specialistType": "Eating Disorder Specialist Team",
+      "primaryProviderId": "prov-bennett",
+      "fallbackProviderIds": ["prov-park"]
+    },
+    {
+      "specialistType": "Child Psychologist",
+      "primaryProviderId": "prov-park",
+      "fallbackProviderIds": ["prov-tran"]
+    }
+  ],
+  "providers": [
+    {
+      "providerId": "prov-park",
+      "name": "Dr. Alicia Park",
+      "specialty": "Pediatric Psychologist",
+      "location": "Cura Midtown",
+      "slots": [
+        {
+          "slotId": "slot-park-0317-1400",
+          "start": "2026-03-17T14:00:00-04:00",
+          "end": "2026-03-17T14:45:00-04:00",
+          "mode": "virtual",
+          "status": "open"
+        },
+        {
+          "slotId": "slot-park-0319-1000",
+          "start": "2026-03-19T10:00:00-04:00",
+          "end": "2026-03-19T10:45:00-04:00",
+          "mode": "in_person",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "providerId": "prov-bennett",
+      "name": "Dr. Omar Bennett",
+      "specialty": "Child & Adolescent Psychiatrist",
+      "location": "Cura Uptown",
+      "slots": [
+        {
+          "slotId": "slot-bennett-0316-1100",
+          "start": "2026-03-16T11:00:00-04:00",
+          "end": "2026-03-16T11:30:00-04:00",
+          "mode": "in_person",
+          "status": "open"
+        },
+        {
+          "slotId": "slot-bennett-0318-1500",
+          "start": "2026-03-18T15:00:00-04:00",
+          "end": "2026-03-18T15:30:00-04:00",
+          "mode": "virtual",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "providerId": "prov-reed",
+      "name": "Dana Reed, LCSW",
+      "specialty": "Trauma-Specialized Therapist",
+      "location": "Cura West",
+      "slots": [
+        {
+          "slotId": "slot-reed-0318-0930",
+          "start": "2026-03-18T09:30:00-04:00",
+          "end": "2026-03-18T10:15:00-04:00",
+          "mode": "virtual",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "providerId": "prov-patel",
+      "name": "Dr. Nia Patel",
+      "specialty": "Developmental-Behavioral Pediatrician",
+      "location": "Cura Child Development Center",
+      "slots": []
+    },
+    {
+      "providerId": "prov-tran",
+      "name": "Dr. Linh Tran",
+      "specialty": "Pediatric Psychologist (Comprehensive Evaluation)",
+      "location": "Cura Midtown",
+      "slots": [
+        {
+          "slotId": "slot-tran-0320-1300",
+          "start": "2026-03-20T13:00:00-04:00",
+          "end": "2026-03-20T13:45:00-04:00",
+          "mode": "in_person",
+          "status": "open"
+        },
+        {
+          "slotId": "slot-tran-0324-1600",
+          "start": "2026-03-24T16:00:00-04:00",
+          "end": "2026-03-24T16:45:00-04:00",
+          "mode": "virtual",
+          "status": "open"
+        }
+      ]
+    }
+  ]
+}

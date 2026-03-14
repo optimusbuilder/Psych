@@ -1,0 +1,171 @@
+{
+  "scenarioFixtures": {
+    "happy_path_psychology": {
+      "input": {
+        "referralId": "family-ref-demo-9001",
+        "patientLookupKey": "maya_torres_2013-08-24"
+      },
+      "timeline": [
+        {
+          "step": "verifyPatient",
+          "result": {
+            "status": "FOUND"
+          }
+        },
+        {
+          "step": "checkEligibility",
+          "result": {
+            "status": "ELIGIBLE"
+          }
+        },
+        {
+          "step": "createReferralOrder",
+          "result": {
+            "status": "SUBMITTED",
+            "referralOrderId": "REF-PSY-22041"
+          }
+        },
+        {
+          "step": "matchAvailability",
+          "result": {
+            "status": "SLOTS_FOUND"
+          }
+        },
+        {
+          "step": "confirmBooking",
+          "result": {
+            "bookingStatus": "CONFIRMED",
+            "bookingId": "SCH-77192",
+            "ehrEventId": "EVT-55804"
+          }
+        }
+      ],
+      "finalEventLog": [
+        "Patient verified",
+        "Coverage checked (ELIGIBLE)",
+        "Referral created",
+        "Appointment booked",
+        "Appointment written back to EHR"
+      ]
+    },
+    "urgent_needs_auth_psychiatry": {
+      "input": {
+        "referralId": "family-ref-demo-9002",
+        "patientLookupKey": "jaylen_brooks_2010-11-03"
+      },
+      "timeline": [
+        {
+          "step": "verifyPatient",
+          "result": {
+            "status": "FOUND"
+          }
+        },
+        {
+          "step": "checkEligibility",
+          "result": {
+            "status": "NEEDS_AUTH",
+            "authCaseId": "AUTH-PEND-4421"
+          }
+        },
+        {
+          "step": "createReferralOrder",
+          "result": {
+            "status": "PENDING_SIGNATURE",
+            "referralOrderId": "REF-PSY-22042"
+          }
+        },
+        {
+          "step": "matchAvailability",
+          "result": {
+            "status": "SLOTS_FOUND"
+          }
+        },
+        {
+          "step": "confirmBooking",
+          "result": {
+            "bookingStatus": "TENTATIVE_HELD",
+            "holdId": "HOLD-90312",
+            "ehrEventId": "EVT-55805"
+          }
+        }
+      ],
+      "finalEventLog": [
+        "Patient verified",
+        "Coverage checked (NEEDS_AUTH)",
+        "Authorization case opened",
+        "Referral draft created",
+        "Tentative slot hold created"
+      ]
+    },
+    "no_availability_developmental": {
+      "input": {
+        "referralId": "family-ref-demo-9003",
+        "patientLookupKey": "new_patient"
+      },
+      "timeline": [
+        {
+          "step": "verifyPatient",
+          "result": {
+            "status": "CREATED",
+            "patientId": "EHR-NEW-39012"
+          }
+        },
+        {
+          "step": "checkEligibility",
+          "result": {
+            "status": "ELIGIBLE"
+          }
+        },
+        {
+          "step": "createReferralOrder",
+          "result": {
+            "status": "SUBMITTED",
+            "referralOrderId": "REF-DEV-11980"
+          }
+        },
+        {
+          "step": "matchAvailability",
+          "result": {
+            "status": "NO_PRIMARY_SLOTS"
+          }
+        },
+        {
+          "step": "confirmBooking",
+          "result": {
+            "bookingStatus": "WAITLISTED",
+            "waitlistId": "WAITLIST-8842",
+            "ehrEventId": "EVT-55806"
+          }
+        }
+      ],
+      "finalEventLog": [
+        "Patient chart created",
+        "Coverage checked (ELIGIBLE)",
+        "Referral created",
+        "Primary specialty full",
+        "Waitlist enrollment created"
+      ]
+    },
+    "immediate_safety_bypass": {
+      "input": {
+        "referralId": "family-ref-demo-9004",
+        "patientLookupKey": "new_patient"
+      },
+      "timeline": [
+        {
+          "step": "safetyBypass",
+          "result": {
+            "status": "BYPASSED_TO_CRISIS",
+            "show911": true,
+            "show988": true
+          }
+        }
+      ],
+      "finalEventLog": [
+        "Immediate safety gate triggered",
+        "Routine booking bypassed",
+        "Crisis resources displayed"
+      ]
+    }
+  }
+}
