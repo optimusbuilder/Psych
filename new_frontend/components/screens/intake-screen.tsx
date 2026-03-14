@@ -19,15 +19,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { ProgressIndicator } from "@/components/progress-indicator"
 import { ArrowLeft, ArrowRight, AlertTriangle, UserRound } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const NODE_LABELS: Record<number, string> = {
   1: "Safety",
-  2: "Age & Context",
+  2: "About your child",
   3: "Communication",
-  4: "Neurodevelopmental",
-  5: "Symptoms",
-  6: "Functional Impact",
-  7: "Instrument Planning",
+  4: "Development and learning",
+  5: "Emotions and behavior",
+  6: "Daily impact",
+  7: "Care planning",
 }
 
 const YES_NO_OPTIONS = [
@@ -55,33 +56,62 @@ const MILD_MODERATE_SEVERE_OPTIONS = [
   { value: "severe", label: "Severe" },
 ]
 
-function mapApiError(error: unknown) {
-  const technicalErrorPattern =
-    /relation .* does not exist|json parse|unrecognized token|syntax error|<!doctype html>|token </i
+const OPTION_PILL_CLASSNAME =
+  "group flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border border-border/55 bg-background/80 px-5 py-3 text-sm text-foreground transition-all duration-200 hover:border-primary/45 hover:bg-primary/[0.04] active:scale-[0.995] has-[button[data-state=checked]]:border-primary/75 has-[button[data-state=checked]]:bg-primary/[0.12] has-[button[data-state=checked]]:shadow-[0_16px_26px_-24px_rgba(14,107,107,0.95)]"
+
+const OPTION_RADIO_CLASSNAME =
+  "size-5 border-primary/35 bg-card shadow-none data-[state=checked]:border-primary data-[state=checked]:bg-primary/15"
+
+const TECHNICAL_ERROR_PATTERN =
+  /relation .* does not exist|json parse|unrecognized token|syntax error|<!doctype html>|token <|referenceerror|typeerror|postgres|sqlstate|stack/i
+
+function cleanErrorMessage(message: string | undefined, fallback: string) {
+  if (!message) {
+    return fallback
+  }
+  const normalized = message.trim().replace(/\s+/g, " ")
+  if (!normalized) {
+    return fallback
+  }
+  if (TECHNICAL_ERROR_PATTERN.test(normalized) || normalized.length > 180) {
+    return fallback
+  }
+  return normalized
+}
+
+function mapApiError(error: unknown, stage: "load" | "submit" = "submit") {
+  const fallback =
+    stage === "load"
+      ? "We are having trouble loading the questions right now. Please try again in a moment."
+      : "We could not save this just yet. Your answers are still here, so please try again."
 
   if (error instanceof ApiError) {
     const body = error.body as Record<string, unknown> | null
-    if (body && typeof body.message === "string") {
-      if (technicalErrorPattern.test(body.message)) {
-        return "The service is still starting up. Please wait a few seconds and try again."
-      }
-      return body.message
-    }
-    if (body && typeof body.error === "string") {
-      if (technicalErrorPattern.test(body.error)) {
-        return "The service is still starting up. Please wait a few seconds and try again."
-      }
-      return body.error
-    }
     if (error.status >= 500) {
-      return "We couldn't submit right now. Please try again in a moment."
+      return fallback
     }
-    return `Request failed (${error.status}). Please try again.`
+    if (error.status === 429) {
+      return "Things are a little busy right now. Please wait a moment and try again."
+    }
+    if (stage === "load" && error.status === 404) {
+      return "The questionnaire is not available right now. Please check back shortly."
+    }
+
+    const candidate =
+      body && typeof body.message === "string"
+        ? body.message
+        : body && typeof body.error === "string"
+          ? body.error
+          : undefined
+
+    return cleanErrorMessage(candidate, fallback)
   }
+
   if (error instanceof Error) {
-    return error.message
+    return cleanErrorMessage(error.message, fallback)
   }
-  return "Something went wrong. Please try again."
+
+  return fallback
 }
 
 function parseAgeYears(answer: FamilyQuestionAnswer | undefined) {
@@ -237,6 +267,40 @@ function questionHelperText(question: FamilyQuestionSpec) {
   }
 }
 
+function answerSummaryText(answer: FamilyQuestionAnswer | undefined) {
+  if (!answer) {
+    return null
+  }
+
+  switch (answer.kind) {
+    case "yes_no":
+    case "confirm": {
+      const labels: Record<FamilyQuestionAnswer["value"], string> = {
+        yes: "Yes",
+        no: "No",
+        unclear: "Unclear",
+        declined: "Prefer not to answer",
+      }
+      return labels[answer.value]
+    }
+    case "mild_mod_severe":
+      return answer.value[0].toUpperCase() + answer.value.slice(1)
+    case "ack":
+      return "Acknowledged"
+    case "date_or_age":
+      return answer.value.trim()
+    case "open_text": {
+      const trimmed = answer.value.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length > 90 ? `${trimmed.slice(0, 90).trimEnd()}...` : trimmed
+    }
+    default:
+      return null
+  }
+}
+
 export function IntakeScreen() {
   const {
     intakeData,
@@ -262,6 +326,7 @@ export function IntakeScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [showSectionRecap, setShowSectionRecap] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -285,7 +350,7 @@ export function IntakeScreen() {
         if (!isMounted) {
           return
         }
-        setLoadingError(mapApiError(error))
+        setLoadingError(mapApiError(error, "load"))
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -361,21 +426,48 @@ export function IntakeScreen() {
   const isFinalSection = currentStep === steps.length - 1
   const isFinalQuestionInSection = !hasQuestionsInNode || currentQuestionIndex === nodeQuestions.length - 1
   const readyToSubmit = isFinalSection && isFinalQuestionInSection
+  const nextSectionNode = !isFinalSection ? steps[currentStep + 1] : null
+  const nextSectionLabel = nextSectionNode ? NODE_LABELS[nextSectionNode] ?? "next section" : null
   const continueLabel = readyToSubmit
     ? "Get Recommendations"
     : hasQuestionsInNode && !isFinalQuestionInSection
       ? "Next question"
       : "Continue"
-  const headerBackLabel =
-    currentQuestionIndex > 0 ? "Previous question" : currentStep === 0 ? "Back to start" : "Previous section"
+  const sectionContinueLabel =
+    showSectionRecap && nextSectionLabel ? `Continue to ${nextSectionLabel}` : continueLabel
+  const progressSummaryLabel = showSectionRecap
+    ? "Here is what we captured in this section"
+    : hasQuestionsInNode
+      ? `${NODE_LABELS[currentNode] ?? "Section"} · Question ${currentQuestionIndex + 1} of ${nodeQuestions.length}`
+      : `${NODE_LABELS[currentNode] ?? "Section"} · Ready to continue`
+  const sectionRecapItems = useMemo(() => {
+    return nodeQuestions
+      .map((question) => {
+        const summary = answerSummaryText(answers[question.id])
+        if (!summary) {
+          return null
+        }
+        return {
+          id: question.id,
+          label: question.label,
+          summary,
+        }
+      })
+      .filter((item): item is { id: string; label: string; summary: string } => item !== null)
+  }, [answers, nodeQuestions])
   const canProceed =
     !loading &&
     !submitting &&
     !loadingError &&
-    (!currentQuestion || !missingCurrentQuestion)
+    (
+      showSectionRecap
+        ? true
+        : !currentQuestion || !missingCurrentQuestion
+    )
 
   useEffect(() => {
     setCurrentQuestionIndex(0)
+    setShowSectionRecap(false)
   }, [currentNode])
 
   useEffect(() => {
@@ -408,6 +500,10 @@ export function IntakeScreen() {
           <Button
             type="button"
             variant={acknowledged ? "default" : "outline"}
+            className={cn(
+              "h-12 rounded-full px-6 text-sm font-semibold",
+              acknowledged && "shadow-[0_16px_24px_-22px_rgba(14,107,107,0.9)]",
+            )}
             onClick={() =>
               updateAnswer(
                 question,
@@ -475,10 +571,14 @@ export function IntakeScreen() {
             {MILD_MODERATE_SEVERE_OPTIONS.map((option) => (
               <label
                 key={option.value}
-                className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border border-border/70 bg-background/65 px-4 py-3 text-sm text-foreground transition-colors hover:border-primary/35"
+                className={OPTION_PILL_CLASSNAME}
               >
-                <RadioGroupItem value={option.value} id={`${question.id}-${option.value}`} />
-                <span className="font-medium">{option.label}</span>
+                <RadioGroupItem
+                  value={option.value}
+                  id={`${question.id}-${option.value}`}
+                  className={OPTION_RADIO_CLASSNAME}
+                />
+                <span className="font-semibold">{option.label}</span>
               </label>
             ))}
           </RadioGroup>
@@ -515,10 +615,14 @@ export function IntakeScreen() {
             {options.map((option) => (
               <label
                 key={option.value}
-                className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border border-border/70 bg-background/65 px-4 py-3 text-sm text-foreground transition-colors hover:border-primary/35"
+                className={OPTION_PILL_CLASSNAME}
               >
-                <RadioGroupItem value={option.value} id={`${question.id}-${option.value}`} />
-                <span className="font-medium">{option.label}</span>
+                <RadioGroupItem
+                  value={option.value}
+                  id={`${question.id}-${option.value}`}
+                  className={OPTION_RADIO_CLASSNAME}
+                />
+                <span className="font-semibold">{option.label}</span>
               </label>
             ))}
           </RadioGroup>
@@ -532,6 +636,14 @@ export function IntakeScreen() {
   async function handleNext() {
     setSubmitError(null)
 
+    if (showSectionRecap) {
+      if (currentStep < steps.length - 1) {
+        setShowSectionRecap(false)
+        setCurrentStep(currentStep + 1)
+      }
+      return
+    }
+
     if (currentQuestion && missingCurrentQuestion) {
       setSubmitError("Please answer this question before continuing.")
       return
@@ -543,7 +655,11 @@ export function IntakeScreen() {
     }
 
     if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1)
+      if (hasQuestionsInNode) {
+        setShowSectionRecap(true)
+      } else {
+        setCurrentStep(currentStep + 1)
+      }
       return
     }
 
@@ -565,7 +681,7 @@ export function IntakeScreen() {
     }
 
     if (responses.length === 0) {
-      setSubmitError("Please answer at least one question before submitting.")
+      setSubmitError("Please share at least one response so we can continue.")
       return
     }
 
@@ -606,13 +722,17 @@ export function IntakeScreen() {
         setCurrentScreen("results")
       }
     } catch (error) {
-      setSubmitError(mapApiError(error))
+      setSubmitError(mapApiError(error, "submit"))
     } finally {
       setSubmitting(false)
     }
   }
 
   function handleBack() {
+    if (showSectionRecap) {
+      setShowSectionRecap(false)
+      return
+    }
     if (currentQuestionIndex > 0) {
       setCurrentQuestionIndex(currentQuestionIndex - 1)
       return
@@ -626,16 +746,8 @@ export function IntakeScreen() {
 
   return (
     <div className="min-h-screen bg-background bg-texture">
-      <div className="mx-auto max-w-3xl px-4 py-8 md:py-14">
-        <header className="mb-12 space-y-4">
-          <button
-            onClick={handleBack}
-            className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft size={18} />
-            {headerBackLabel}
-          </button>
-
+      <div className="mx-auto max-w-3xl px-4 pb-36 pt-8 md:pb-40 md:pt-12">
+        <header className="mb-10 space-y-3">
           <h1 className="font-serif text-3xl font-semibold text-foreground md:text-4xl">
             Family Intake Questionnaire
           </h1>
@@ -645,7 +757,7 @@ export function IntakeScreen() {
           </p>
         </header>
 
-        <Card className="mb-8 border-border/70 bg-card/85 shadow-sm">
+        <Card className="mb-10 border-border/45 bg-card/72 shadow-[0_16px_34px_-30px_rgba(28,43,51,0.8)]">
           <CardHeader>
             <div className="flex items-center gap-2">
               <UserRound className="h-4 w-4 text-primary" />
@@ -670,7 +782,7 @@ export function IntakeScreen() {
         />
 
         {hasImmediateSafetySignal && (
-          <Card className="mb-8 border-warning/35 bg-warning/10 shadow-sm">
+          <Card className="mb-8 border-warning/25 bg-warning/[0.08] shadow-[0_14px_32px_-30px_rgba(185,131,47,0.95)]">
             <CardContent className="flex items-start gap-2 p-4 text-sm text-foreground">
               <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
               <span>
@@ -682,13 +794,13 @@ export function IntakeScreen() {
         )}
 
         {loadingError && (
-          <Card className="mb-8 border-destructive/40 bg-destructive/5 shadow-sm">
+          <Card className="mb-8 border-destructive/25 bg-destructive/[0.06] shadow-[0_14px_32px_-30px_rgba(182,64,64,0.95)]">
             <CardContent className="p-4 text-sm text-destructive">{loadingError}</CardContent>
           </Card>
         )}
 
-        <Card className="border-border/70 bg-card/90 shadow-sm">
-          <CardHeader className="gap-4">
+        <Card className="border-border/45 bg-card/78 shadow-[0_20px_42px_-34px_rgba(28,43,51,0.9)]">
+          <CardHeader className="gap-3.5">
             <CardTitle className="font-serif text-2xl leading-tight md:text-[2rem]">
               {NODE_LABELS[currentNode] ?? "Section"}
             </CardTitle>
@@ -704,7 +816,7 @@ export function IntakeScreen() {
             </p>
           </CardHeader>
 
-          <CardContent className="space-y-10 pb-8">
+          <CardContent className="space-y-10 pb-10">
             {loading && <p className="text-sm text-muted-foreground">Loading question catalog...</p>}
 
             {!loading && !hasQuestionsInNode && (
@@ -716,7 +828,7 @@ export function IntakeScreen() {
             {!loading && currentQuestion && (
               <div
                 key={currentQuestion.id}
-                className="space-y-6 rounded-2xl border border-border/65 bg-background/65 p-5 md:p-7"
+                className="space-y-6 rounded-[1.35rem] bg-background/55 p-5 ring-1 ring-border/50 md:p-7"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -750,26 +862,34 @@ export function IntakeScreen() {
             {submitError && <p className="text-sm text-destructive">{submitError}</p>}
           </CardContent>
         </Card>
+      </div>
 
-        <div className="mt-12 flex items-center justify-between gap-4 border-t border-border/70 pt-8">
-          <Button
-            variant="outline"
-            onClick={handleBack}
-            disabled={submitting}
-            className="h-11 rounded-xl border-border/70 px-5 text-sm"
-          >
-            <ArrowLeft size={18} />
-            Back
-          </Button>
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/45 bg-background/86 backdrop-blur-md">
+        <div className="mx-auto max-w-3xl px-4 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-3 md:pt-4">
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/55 bg-card/92 px-3 py-3 shadow-[0_-12px_34px_-28px_rgba(28,43,51,0.95)] md:px-4">
+            <Button
+              variant="outline"
+              onClick={handleBack}
+              disabled={submitting}
+              className="h-11 rounded-full border-border/65 px-5 text-sm font-medium"
+            >
+              <ArrowLeft size={18} />
+              Back
+            </Button>
 
-          <Button
-            onClick={handleNext}
-            disabled={!canProceed || loading}
-            className="h-11 rounded-xl bg-primary px-6 text-sm hover:bg-primary/90"
-          >
-            {submitting ? "Submitting..." : continueLabel}
-            <ArrowRight size={18} />
-          </Button>
+            <p className="hidden min-w-0 flex-1 truncate px-2 text-center text-xs text-muted-foreground md:block">
+              {progressSummaryLabel}
+            </p>
+
+            <Button
+              onClick={handleNext}
+              disabled={!canProceed || loading}
+              className="h-11 rounded-full bg-primary px-6 text-sm font-semibold hover:bg-primary/90"
+            >
+              {submitting ? "Submitting..." : continueLabel}
+              <ArrowRight size={18} />
+            </Button>
+          </div>
         </div>
       </div>
     </div>

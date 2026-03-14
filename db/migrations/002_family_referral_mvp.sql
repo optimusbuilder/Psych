@@ -1,20 +1,20 @@
 BEGIN;
 
-CREATE TABLE family_referrals (
+CREATE TABLE IF NOT EXISTS family_referrals (
   id TEXT PRIMARY KEY,
   status TEXT NOT NULL CHECK (status IN ('completed', 'safety_escalated')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE family_referral_intakes (
+CREATE TABLE IF NOT EXISTS family_referral_intakes (
   id TEXT PRIMARY KEY,
   referral_id TEXT NOT NULL UNIQUE REFERENCES family_referrals(id) ON DELETE CASCADE,
   intake_json JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE family_referral_decisions (
+CREATE TABLE IF NOT EXISTS family_referral_decisions (
   id TEXT PRIMARY KEY,
   referral_id TEXT NOT NULL UNIQUE REFERENCES family_referrals(id) ON DELETE CASCADE,
   safety_gate TEXT NOT NULL CHECK (safety_gate IN ('clear', 'urgent', 'immediate')),
@@ -32,7 +32,7 @@ CREATE TABLE family_referral_decisions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE family_referral_reports (
+CREATE TABLE IF NOT EXISTS family_referral_reports (
   id TEXT PRIMARY KEY,
   referral_id TEXT NOT NULL REFERENCES family_referrals(id) ON DELETE CASCADE,
   format TEXT NOT NULL CHECK (format IN ('pdf')),
@@ -40,13 +40,13 @@ CREATE TABLE family_referral_reports (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_family_referrals_created_at
+CREATE INDEX IF NOT EXISTS idx_family_referrals_created_at
   ON family_referrals(created_at DESC);
 
-CREATE INDEX idx_family_referral_decisions_urgency
+CREATE INDEX IF NOT EXISTS idx_family_referral_decisions_urgency
   ON family_referral_decisions(urgency_level, created_at DESC);
 
-CREATE INDEX idx_family_referral_reports_referral_created
+CREATE INDEX IF NOT EXISTS idx_family_referral_reports_referral_created
   ON family_referral_reports(referral_id, created_at DESC);
 
 COMMIT;

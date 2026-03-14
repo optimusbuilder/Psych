@@ -1,13 +1,13 @@
 BEGIN;
 
-CREATE TABLE organizations (
+CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   type TEXT NOT NULL CHECK (type IN ('hospital', 'clinic', 'school-partner', 'community-partner')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
@@ -16,7 +16,7 @@ CREATE TABLE users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE patients (
+CREATE TABLE IF NOT EXISTS patients (
   id TEXT PRIMARY KEY,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE patients (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE intake_sessions (
+CREATE TABLE IF NOT EXISTS intake_sessions (
   id TEXT PRIMARY KEY,
   patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
   route_type TEXT NOT NULL CHECK (route_type IN ('patient_portal', 'provider_portal')),
@@ -38,7 +38,7 @@ CREATE TABLE intake_sessions (
   submitted_at TIMESTAMPTZ
 );
 
-CREATE TABLE referring_providers (
+CREATE TABLE IF NOT EXISTS referring_providers (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL REFERENCES intake_sessions(id) ON DELETE CASCADE,
   provider_name TEXT,
@@ -52,7 +52,7 @@ CREATE TABLE referring_providers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE safety_assessments (
+CREATE TABLE IF NOT EXISTS safety_assessments (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL UNIQUE REFERENCES intake_sessions(id) ON DELETE CASCADE,
   suicidal_risk_flag BOOLEAN NOT NULL DEFAULT FALSE,
@@ -65,7 +65,7 @@ CREATE TABLE safety_assessments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE symptom_family_assessments (
+CREATE TABLE IF NOT EXISTS symptom_family_assessments (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL UNIQUE REFERENCES intake_sessions(id) ON DELETE CASCADE,
   primary_family TEXT NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE symptom_family_assessments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE functional_impairment_scores (
+CREATE TABLE IF NOT EXISTS functional_impairment_scores (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL UNIQUE REFERENCES intake_sessions(id) ON DELETE CASCADE,
   home_score SMALLINT NOT NULL CHECK (home_score BETWEEN 0 AND 10),
@@ -91,7 +91,7 @@ CREATE TABLE functional_impairment_scores (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE instrument_assignments (
+CREATE TABLE IF NOT EXISTS instrument_assignments (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL REFERENCES intake_sessions(id) ON DELETE CASCADE,
   instrument_name TEXT NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE instrument_assignments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE instrument_results (
+CREATE TABLE IF NOT EXISTS instrument_results (
   id TEXT PRIMARY KEY,
   assignment_id TEXT NOT NULL UNIQUE REFERENCES instrument_assignments(id) ON DELETE CASCADE,
   raw_score NUMERIC,
@@ -111,7 +111,7 @@ CREATE TABLE instrument_results (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE triage_decisions (
+CREATE TABLE IF NOT EXISTS triage_decisions (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL REFERENCES intake_sessions(id) ON DELETE CASCADE,
   recommendation TEXT NOT NULL,
@@ -124,7 +124,7 @@ CREATE TABLE triage_decisions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE clinician_reviews (
+CREATE TABLE IF NOT EXISTS clinician_reviews (
   id TEXT PRIMARY KEY,
   intake_session_id TEXT NOT NULL REFERENCES intake_sessions(id) ON DELETE CASCADE,
   reviewer_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -135,7 +135,7 @@ CREATE TABLE clinician_reviews (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
@@ -145,16 +145,16 @@ CREATE TABLE audit_logs (
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
-CREATE INDEX idx_intake_sessions_status_created_at
+CREATE INDEX IF NOT EXISTS idx_intake_sessions_status_created_at
   ON intake_sessions(status, created_at DESC);
 
-CREATE INDEX idx_triage_decisions_urgency_level_created_at
+CREATE INDEX IF NOT EXISTS idx_triage_decisions_urgency_level_created_at
   ON triage_decisions(urgency_level, created_at DESC);
 
-CREATE INDEX idx_clinician_reviews_reviewed_at
+CREATE INDEX IF NOT EXISTS idx_clinician_reviews_reviewed_at
   ON clinician_reviews(reviewed_at DESC);
 
-CREATE INDEX idx_audit_logs_entity
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
   ON audit_logs(entity_type, entity_id, "timestamp" DESC);
 
 COMMIT;

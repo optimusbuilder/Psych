@@ -1,13 +1,19 @@
-[00:00:00.543] Server  LOG     ✓ Ready in 363ms
-[00:00:09.666] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
-[00:00:09.666] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
-[00:00:09.666] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1773521232308} /_vercel/insights/view
-[00:21:14.260] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
-[00:21:14.260] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
-[00:21:14.260] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1773522496903} /_vercel/insights/view
-[00:21:15.438] Server  LOG     ✓ Compiled in 53ms
-[00:21:44.415] Server  LOG     ✓ Compiled in 79ms
-[00:21:49.151] Server  LOG     ✓ Compiled in 34ms
-[00:24:47.093] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
-[00:24:47.093] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
-[00:24:47.093] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1773522709737} /_vercel/insights/view
+[00:00:00.315] Server  LOG     ✓ Ready in 195ms
+[00:00:05.602] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:00:05.602] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
+[00:00:05.602] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1773525232984} /_vercel/insights/view
+[00:04:14.413] Server  LOG     ✓ Compiled in 71ms
+[00:04:23.463] Server  LOG     ✓ Compiled in 47ms
+[00:04:48.697] Server  LOG     ✓ Compiled in 71ms
+[00:04:54.702] Server  LOG     ✓ Compiled in 35ms
+[00:04:54.815] Browser ERROR   uncaughtError: ReferenceError: Can't find variable: headerBackLabel
+[00:05:07.543] Server  LOG     ✓ Compiled in 77ms
+[00:05:07.566] Server  WARN    ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+[00:05:07.665] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1773525535061} /_vercel/insights/view
+[00:05:08.360] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:05:08.360] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
+[00:05:08.360] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1773525535655} /_vercel/insights/view
+[00:05:52.759] Server  LOG     ✓ Compiled in 61ms
+[00:08:37.840] Server  LOG     ✓ Compiled in 32ms
+[00:08:55.943] Server  LOG     ✓ Compiled in 35ms
+[00:09:05.543] Server  LOG     ✓ Compiled in 33ms
