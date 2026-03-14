@@ -800,12 +800,14 @@ export function IntakeScreen() {
         )}
 
         <Card className="border-border/45 bg-card/78 shadow-[0_20px_42px_-34px_rgba(28,43,51,0.9)]">
-          <CardHeader className="gap-3.5">
+          <CardHeader key={`section-header-${currentNode}`} className="animate-fade-in gap-3.5">
             <CardTitle className="font-serif text-2xl leading-tight md:text-[2rem]">
               {NODE_LABELS[currentNode] ?? "Section"}
             </CardTitle>
             <CardDescription className="text-sm leading-relaxed text-muted-foreground">
-              {hasQuestionsInNode
+              {showSectionRecap
+                ? "Here is a quick summary before we move to the next section."
+                : hasQuestionsInNode
                 ? `Question ${currentQuestionIndex + 1} of ${nodeQuestions.length} in this section.`
                 : "No questions are needed in this section based on earlier responses."}
             </CardDescription>
@@ -825,10 +827,10 @@ export function IntakeScreen() {
               </p>
             )}
 
-            {!loading && currentQuestion && (
+            {!loading && !showSectionRecap && currentQuestion && (
               <div
                 key={currentQuestion.id}
-                className="space-y-6 rounded-[1.35rem] bg-background/55 p-5 ring-1 ring-border/50 md:p-7"
+                className="animate-fade-in animate-slide-up space-y-6 rounded-[1.35rem] bg-background/55 p-5 ring-1 ring-border/50 md:p-7"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -855,6 +857,52 @@ export function IntakeScreen() {
                   <p className="text-sm text-destructive">
                     This question is required before you continue.
                   </p>
+                )}
+              </div>
+            )}
+
+            {!loading && showSectionRecap && (
+              <div className="animate-fade-in animate-slide-up space-y-5 rounded-[1.35rem] bg-background/58 p-5 ring-1 ring-border/50 md:p-7">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                    Section recap
+                  </p>
+                  <h3 className="font-serif text-3xl leading-tight text-foreground">
+                    Here is what we captured
+                  </h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Please take a quick look. You can go back to make changes before continuing.
+                  </p>
+                </div>
+
+                {sectionRecapItems.length === 0 ? (
+                  <p className="rounded-xl bg-card/70 p-4 text-sm text-muted-foreground ring-1 ring-border/45">
+                    No responses were recorded in this section.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {sectionRecapItems.slice(0, 4).map((item, index) => (
+                      <div
+                        key={item.id}
+                        className={cn(
+                          "rounded-xl bg-card/72 p-4 ring-1 ring-border/45 animate-fade-in animate-slide-up",
+                          index === 1 && "stagger-1",
+                          index === 2 && "stagger-2",
+                          index === 3 && "stagger-3",
+                        )}
+                      >
+                        <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                          {item.label}
+                        </p>
+                        <p className="mt-1.5 text-sm leading-relaxed text-foreground">{item.summary}</p>
+                      </div>
+                    ))}
+                    {sectionRecapItems.length > 4 && (
+                      <p className="text-xs text-muted-foreground">
+                        +{sectionRecapItems.length - 4} more responses captured in this section.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -886,7 +934,7 @@ export function IntakeScreen() {
               disabled={!canProceed || loading}
               className="h-11 rounded-full bg-primary px-6 text-sm font-semibold hover:bg-primary/90"
             >
-              {submitting ? "Submitting..." : continueLabel}
+              {submitting ? "Submitting..." : sectionContinueLabel}
               <ArrowRight size={18} />
             </Button>
           </div>
