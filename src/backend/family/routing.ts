@@ -1,4 +1,5 @@
 import {
+  type AgeBand,
   evaluateTriageRules,
   type NormalizedSymptomFamily,
   type RulesInput,
@@ -324,9 +325,19 @@ export interface FamilyRoutingOutput {
   specialistDescription: string;
   rationale: string[];
   nextSteps: string[];
+  instrumentPack: string[];
 }
 
-function specialistForTrack(track: SpecialtyTrack, urgency: UrgencyLevel, input: FamilyReferralCreateInput) {
+export interface FamilyRecommendationContext {
+  preferredApproach?: FamilyReferralCreateInput["preferredApproach"] | null;
+  familyHistory?: FamilyReferralCreateInput["familyHistory"] | "unknown" | null;
+}
+
+function specialistForTrack(
+  track: SpecialtyTrack,
+  urgency: UrgencyLevel,
+  context: FamilyRecommendationContext,
+) {
   if (urgency === "immediate") {
     return {
       specialistType: "Crisis Mental Health Services",
@@ -344,7 +355,7 @@ function specialistForTrack(track: SpecialtyTrack, urgency: UrgencyLevel, input:
           "A child psychiatrist is recommended for rapid diagnostic and treatment planning.",
       };
     case "mood_anxiety_track":
-      if (input.preferredApproach === "open-medication" || urgency === "urgent") {
+      if (context.preferredApproach === "open-medication" || urgency === "urgent") {
         return {
           specialistType: "Child & Adolescent Psychiatrist",
           specialistDescription:
@@ -417,7 +428,7 @@ const REASON_MESSAGES: Record<string, string> = {
   TRAJECTORY_RAPID_WORSENING: "The concern pattern appears to be worsening quickly.",
 };
 
-function buildRationale(result: RulesResult, intake: FamilyReferralCreateInput) {
+function buildRationale(result: RulesResult, context: FamilyRecommendationContext) {
   const reasonLines: string[] = [];
   for (const reasonCode of result.reasonCodes) {
     const message = REASON_MESSAGES[reasonCode];
@@ -425,7 +436,7 @@ function buildRationale(result: RulesResult, intake: FamilyReferralCreateInput) 
       reasonLines.push(message);
     }
   }
-  if (intake.familyHistory === "yes") {
+  if (context.familyHistory === "yes") {
     reasonLines.push("Family history details may be relevant for treatment planning.");
   }
   if (reasonLines.length === 0) {
@@ -463,6 +474,131 @@ function buildNextSteps(result: RulesResult, specialistType: string) {
     "Verify insurance network and referral requirements before booking.",
     "If safety worsens before the appointment, call 988 or 911 immediately.",
   ];
+}
+
+function instrumentBaseByAge(ageBand: AgeBand) {
+  switch (ageBand) {
+    case "early_childhood":
+      return ["PPSC", "SWYC / ASQ:SE-2"];
+    case "school_age":
+      return ["PSC-17"];
+    case "adolescent":
+      return ["PSC-17", "Broad adolescent behavioral screen"];
+    case "transitional_young_adult":
+      return ["PHQ-9", "GAD-7"];
+    default:
+      return ["General behavioral health triage intake"];
+  }
+}
+
+export function buildInstrumentPack(params: {
+  ageBand: AgeBand;
+  primaryFamily: RulesResult["normalizedSymptomFamily"];
+  severityTier: RulesResult["severityTier"];
+  neurodevelopmentalModifier?: boolean;
+  includePatientInstruments?: boolean;
+  teacherFormAvailable?: boolean | null;
+  safetyGate?: RulesResult["safetyGate"];
+}): string[] {
+  const pack = new Set<string>(instrumentBaseByAge(params.ageBand));
+
+  if (params.safetyGate === "immediate" || params.safetyGate === "urgent") {
+    pack.add("Immediate clinician safety assessment (instrument battery secondary)");
+  }
+
+  switch (params.primaryFamily) {
+    case "anxiety_worry_panic_ocd":
+      if (params.ageBand === "early_childhood") {
+        pack.add("PAS (Preschool Anxiety Scale)");
+      } else {
+        pack.add("SCARED");
+        if (params.includePatientInstruments !== false) {
+          pack.add("GAD-7");
+        }
+      }
+      break;
+    case "mood_depression_irritability":
+      if (params.ageBand === "adolescent") {
+        pack.add("PHQ-A");
+      } else if (params.ageBand === "transitional_young_adult") {
+        pack.add("PHQ-9");
+      }
+      pack.add("ASQ (if suicidality concerns)");
+      break;
+    case "attention_hyperactivity_impulsivity":
+    case "behavioral_dysregulation_defiance_aggression":
+      pack.add("Vanderbilt Parent Rating Scale");
+      if (params.teacherFormAvailable !== false) {
+        pack.add("Vanderbilt Teacher Rating Scale");
+      }
+      break;
+    case "autism_developmental_social":
+      if (params.ageBand === "early_childhood") {
+        pack.add("M-CHAT-R/F (age permitting)");
+        pack.add("SWYC POSI");
+      }
+      pack.add("Developmental/autism specialist referral packet");
+      break;
+    case "trauma_stress_related":
+      pack.add("Trauma symptom screen (age-appropriate)");
+      break;
+    case "substance_use":
+      pack.add("CRAFFT");
+      break;
+    case "eating_body_image":
+      pack.add("SCOFF");
+      break;
+    case "psychosis_mania_like":
+      pack.add("Urgent psychiatry diagnostic interview");
+      break;
+    default:
+      break;
+  }
+
+  if (params.neurodevelopmentalModifier) {
+    pack.add("Neurodevelopmental parallel pathway review");
+  }
+
+  if (params.severityTier === "severe") {
+    pack.add("High-acuity follow-up protocol");
+  }
+
+  return Array.from(pack);
+}
+
+export function createFamilyRecommendationFromRulesResult(
+  rulesResult: RulesResult,
+  context: FamilyRecommendationContext,
+  options?: {
+    neurodevelopmentalModifier?: boolean;
+    includePatientInstruments?: boolean;
+    teacherFormAvailable?: boolean | null;
+  },
+) {
+  const specialist = specialistForTrack(
+    rulesResult.specialtyTrack,
+    rulesResult.urgencyLevel,
+    context,
+  );
+  const rationale = buildRationale(rulesResult, context);
+  const nextSteps = buildNextSteps(rulesResult, specialist.specialistType);
+  const instrumentPack = buildInstrumentPack({
+    ageBand: rulesResult.ageBand,
+    primaryFamily: rulesResult.normalizedSymptomFamily,
+    severityTier: rulesResult.severityTier,
+    neurodevelopmentalModifier: options?.neurodevelopmentalModifier,
+    includePatientInstruments: options?.includePatientInstruments,
+    teacherFormAvailable: options?.teacherFormAvailable,
+    safetyGate: rulesResult.safetyGate,
+  });
+
+  return {
+    specialistType: specialist.specialistType,
+    specialistDescription: specialist.specialistDescription,
+    rationale,
+    nextSteps,
+    instrumentPack,
+  };
 }
 
 export function buildRulesInputFromFamilyIntake(
@@ -511,16 +647,28 @@ export function createFamilyRoutingOutput(
 ): FamilyRoutingOutput {
   const rulesInput = buildRulesInputFromFamilyIntake(input, referenceDate);
   const rulesResult = evaluateTriageRules(rulesInput);
-  const specialist = specialistForTrack(rulesResult.specialtyTrack, rulesResult.urgencyLevel, input);
-  const rationale = buildRationale(rulesResult, input);
-  const nextSteps = buildNextSteps(rulesResult, specialist.specialistType);
+  const recommendation = createFamilyRecommendationFromRulesResult(
+    rulesResult,
+    {
+      preferredApproach: input.preferredApproach,
+      familyHistory: input.familyHistory,
+    },
+    {
+      neurodevelopmentalModifier:
+        input.primaryConcerns.includes("social") || input.primaryConcerns.includes("learning"),
+      includePatientInstruments:
+        rulesResult.ageBand === "adolescent" || rulesResult.ageBand === "transitional_young_adult",
+      teacherFormAvailable: null,
+    },
+  );
 
   return {
     rulesInput,
     rulesResult,
-    specialistType: specialist.specialistType,
-    specialistDescription: specialist.specialistDescription,
-    rationale,
-    nextSteps,
+    specialistType: recommendation.specialistType,
+    specialistDescription: recommendation.specialistDescription,
+    rationale: recommendation.rationale,
+    nextSteps: recommendation.nextSteps,
+    instrumentPack: recommendation.instrumentPack,
   };
 }
