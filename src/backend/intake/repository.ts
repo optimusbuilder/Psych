@@ -1031,6 +1031,27 @@ export class IntakeRepository {
     }
   }
 
+  async submitReferral(input: import("./contracts").CreateReferralInput, actorUserId?: string) {
+    const sessionResult = await this.createSession({
+      routeType: "provider_portal",
+      patient: input.patient,
+      startedByUserId: input.startedByUserId,
+    });
+
+    await this.saveReferringProvider(sessionResult.id, input.referringProvider);
+    await this.saveSafety(sessionResult.id, input.safety, actorUserId ?? null);
+    await this.saveSymptoms(sessionResult.id, input.symptoms);
+    await this.saveFunctionalImpact(sessionResult.id, input.functionalImpact);
+
+    const submissionResult = await this.submitSession(sessionResult.id);
+
+    return {
+      sessionId: sessionResult.id,
+      patientId: sessionResult.patientId,
+      submission: submissionResult,
+    };
+  }
+
   async routeInstruments(sessionId: string) {
     const aggregate = await this.getSessionAggregate(sessionId);
     if (!aggregate) {

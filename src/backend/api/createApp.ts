@@ -3,7 +3,7 @@ import {
   clinicianOverrideSchema,
   createSessionSchema,
   functionalImpactSchema,
-  respondentSchema,
+  createReferralSchema,
   safetySchema,
   scoreInstrumentSchema,
   symptomSchema,
@@ -212,6 +212,30 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
   app.get("/api/v1/health", (_req, res) => {
     res.status(200).json({ ok: true });
   });
+
+  app.post(
+    "/api/v1/triage/referrals",
+    requireRoles([...intakeWriteRoles, ...providerRoles]),
+    async (req, res) => {
+      const parseResult = createReferralSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "ValidationError",
+          issues: parseResult.error.issues,
+        });
+      }
+
+      try {
+        const referral = await repository.submitReferral(parseResult.data, getActorUserId(req));
+        return res.status(201).json(referral);
+      } catch (error) {
+        return res.status(500).json({
+          error: "SubmitReferralFailed",
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    },
+  );
 
   app.post(
     "/api/v1/intake-sessions",

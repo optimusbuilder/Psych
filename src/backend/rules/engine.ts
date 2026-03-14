@@ -922,10 +922,10 @@ export function evaluateTriageRules(input: RulesInput): RulesResult {
 export function rulesInputFromAggregate(aggregate: IntakeSessionAggregate): RulesInput {
   return {
     patientDob: aggregate.patient.dob,
-    respondentType: aggregate.respondent?.type ?? null,
-    communicationProfile: aggregate.respondent?.communicationProfile ?? null,
-    developmentalDelayConcern: aggregate.respondent?.developmentalDelayConcern ?? false,
-    autismConcern: aggregate.respondent?.autismConcern ?? false,
+    respondentType: aggregate.referringProvider ? "clinician" : null,
+    communicationProfile: aggregate.referringProvider?.communicationProfile ?? null,
+    developmentalDelayConcern: aggregate.referringProvider?.developmentalDelayConcern ?? false,
+    autismConcern: aggregate.referringProvider?.autismConcern ?? false,
     safetyAssessment: aggregate.safetyAssessment
       ? {
         suicidalRiskFlag: aggregate.safetyAssessment.suicidalRiskFlag,
