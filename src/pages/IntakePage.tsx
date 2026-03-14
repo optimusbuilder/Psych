@@ -19,6 +19,18 @@ import {
   submitIntakeSession,
   type IntakeSubmitResponse,
 } from "@/lib/api";
+import {
+  createEmptyFunctionalDetailResponses,
+  createEmptySafetyDetailFlags,
+  createEmptySymptomDetailResponses,
+  deriveFunctionalImpactScores,
+  deriveSafetySubmission,
+  deriveSymptomRouting,
+  type FrequencyValue,
+  type FunctionalDetailResponses,
+  type SafetyDetailFlags,
+  type SymptomDetailResponses,
+} from "@/lib/intakeQuestionLogic";
 
 const STEPS = [
   "Welcome",
@@ -32,43 +44,46 @@ const STEPS = [
 
 export interface IntakeData {
   respondent: string;
-  safetyFlags: { selfHarm: boolean; suicidal: boolean; harmOthers: boolean };
+  safetyFlags: SafetyDetailFlags;
   patientInfo: {
     firstName: string;
     lastName: string;
     age: string;
     gender: string;
     grade: string;
+    verbalCommunication: string;
+    developmentalDelayConcern: string;
+    autismConcern: string;
+    learningConcern: string;
     concern: string;
     description: string;
   };
   symptoms: string[];
+  symptomDetails: SymptomDetailResponses;
+  functionalDetail: FunctionalDetailResponses;
   functionalImpact: { home: number; school: number; social: number; safety: number };
 }
 
 const initialData: IntakeData = {
   respondent: "",
-  safetyFlags: { selfHarm: false, suicidal: false, harmOthers: false },
+  safetyFlags: createEmptySafetyDetailFlags(),
   patientInfo: {
     firstName: "",
     lastName: "",
     age: "",
     gender: "",
     grade: "",
+    verbalCommunication: "",
+    developmentalDelayConcern: "",
+    autismConcern: "",
+    learningConcern: "",
     concern: "",
     description: "",
   },
   symptoms: [],
+  symptomDetails: createEmptySymptomDetailResponses(),
+  functionalDetail: createEmptyFunctionalDetailResponses(),
   functionalImpact: { home: 0, school: 0, social: 0, safety: 0 },
-};
-
-const symptomMap: Record<string, string> = {
-  anxiety: "Anxiety / Worry / Panic / School Refusal / OCD-like",
-  depression: "Mood / Depression / Irritability",
-  adhd: "ADHD / Attention / Hyperactivity / Impulsivity",
-  behavioral: "Behavioral Dysregulation / Defiance / Aggression",
-  social: "Autism / Developmental / Social Communication",
-  substance: "Substance Use",
 };
 
 function ageToDob(ageText: string) {
@@ -110,6 +125,47 @@ export default function IntakePage() {
   const prev = () => setStep((s) => Math.max(s - 1, 0));
 
   const hasSafetyFlags = useMemo(() => Object.values(data.safetyFlags).some(Boolean), [data.safetyFlags]);
+
+  function handleSymptomDetailChange(familyId: string, questionId: string, value: FrequencyValue) {
+    setData((previous) => ({
+      ...previous,
+      symptomDetails: {
+        ...previous.symptomDetails,
+        [familyId]: {
+          ...previous.symptomDetails[familyId as keyof SymptomDetailResponses],
+          [questionId]: value,
+        },
+      },
+    }));
+  }
+
+  function handleFunctionalDetailChange(
+    domain: keyof FunctionalDetailResponses,
+    question:
+      | "routineDisruption"
+      | "conflictOrConsequence"
+      | "baselineFunctionDrop",
+    value: FrequencyValue,
+  ) {
+    setData((previous) => {
+      const nextDetail = {
+        ...previous.functionalDetail,
+        [domain]: {
+          ...previous.functionalDetail[domain],
+          [question]: value,
+        },
+      };
+      const derived = deriveFunctionalImpactScores(nextDetail);
+      return {
+        ...previous,
+        functionalDetail: nextDetail,
+        functionalImpact: {
+          ...previous.functionalImpact,
+          ...derived,
+        },
+      };
+    });
+  }
 
   function mapApiError(error: unknown) {
     if (error instanceof ApiError) {
@@ -153,7 +209,8 @@ export default function IntakePage() {
       }
 
       await saveRespondent(createdSession, respondentToApiType(data.respondent));
-      const safetyResponse = await saveSafety(createdSession, data.safetyFlags);
+      const safetyPayload = deriveSafetySubmission(data.safetyFlags);
+      const safetyResponse = await saveSafety(createdSession, safetyPayload);
 
       if (safetyResponse.requiresImmediateReview || hasSafetyFlags) {
         const submitResponse = await submitIntakeSession(createdSession);
@@ -179,9 +236,16 @@ export default function IntakePage() {
     setErrorMessage(null);
     setSaving(true);
     try {
-      const primary = symptomMap[data.symptoms[0]] ?? data.patientInfo.concern;
-      const secondary = data.symptoms.slice(1).map((id) => symptomMap[id]).filter(Boolean);
-      await saveSymptoms(sessionId, primary, secondary);
+      const selectedSymptoms =
+        data.patientInfo.autismConcern === "yes" && !data.symptoms.includes("social")
+          ? [...data.symptoms, "social"]
+          : data.symptoms;
+      const routing = deriveSymptomRouting(selectedSymptoms, data.symptomDetails);
+      await saveSymptoms(
+        sessionId,
+        routing.primaryFamilyLabel,
+        routing.secondaryFamilyLabels,
+      );
       setStep(5);
     } catch (error) {
       setErrorMessage(mapApiError(error));
@@ -294,7 +358,9 @@ export default function IntakePage() {
             <IntakeSymptoms
               key="symptoms"
               selected={data.symptoms}
+              detailResponses={data.symptomDetails}
               onChange={(s) => setData({ ...data, symptoms: s })}
+              onDetailChange={handleSymptomDetailChange}
               onNext={saving ? () => undefined : handleSymptomsNext}
               onBack={prev}
             />
@@ -303,7 +369,9 @@ export default function IntakePage() {
             <IntakeFunctionalImpact
               key="impact"
               impact={data.functionalImpact}
+              detailResponses={data.functionalDetail}
               onChange={(impact) => setData({ ...data, functionalImpact: impact })}
+              onDetailChange={handleFunctionalDetailChange}
               onNext={saving ? () => undefined : handleFunctionalNext}
               onBack={prev}
             />

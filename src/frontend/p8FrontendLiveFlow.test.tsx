@@ -223,12 +223,18 @@ describe("P8-Frontend-Live-Flow", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Anxiety \/ Panic/i }));
+    for (const button of screen.getAllByRole("button", { name: /^Sometimes$/i })) {
+      fireEvent.click(button);
+    }
     fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { name: /How much is this affecting daily life/i }),
       ).toBeInTheDocument();
     });
+    for (const button of screen.getAllByRole("button", { name: /^Sometimes$/i })) {
+      fireEvent.click(button);
+    }
     fireEvent.click(screen.getByRole("button", { name: /Continue to Summary/i }));
 
     await waitFor(() => {
@@ -270,7 +276,9 @@ describe("P8-Frontend-Live-Flow", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Ava Stone")).toBeInTheDocument();
-      expect(screen.getByText(/PCP follow-up and community therapy monitoring pathway/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Targeted screening with clinician review is recommended before final routing/i),
+      ).toBeInTheDocument();
     });
   });
 });

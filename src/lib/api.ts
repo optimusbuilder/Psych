@@ -184,7 +184,13 @@ export async function saveRespondent(sessionId: string, type: "patient" | "careg
 
 export async function saveSafety(
   sessionId: string,
-  flags: { selfHarm: boolean; suicidal: boolean; harmOthers: boolean },
+  flags: {
+    selfHarm: boolean;
+    suicidal: boolean;
+    harmOthers: boolean;
+    psychosisMania?: boolean;
+    notes?: string;
+  },
 ) {
   return request<{
     escalationLevel: string;
@@ -198,7 +204,8 @@ export async function saveSafety(
       body: JSON.stringify({
         suicidalRiskFlag: flags.selfHarm || flags.suicidal,
         violenceRiskFlag: flags.harmOthers,
-        psychosisManiaFlag: false,
+        psychosisManiaFlag: flags.psychosisMania ?? false,
+        notes: flags.notes,
       }),
     },
     "caregiver",

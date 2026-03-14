@@ -4,25 +4,53 @@ import { SelectableCard } from "@/components/SelectableCard";
 import { AlertBanner } from "@/components/AlertBanner";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, ShieldAlert } from "lucide-react";
-
-interface SafetyFlags {
-  selfHarm: boolean;
-  suicidal: boolean;
-  harmOthers: boolean;
-}
+import type { SafetyDetailFlags } from "@/lib/intakeQuestionLogic";
 
 interface IntakeSafetyScreenProps {
-  flags: SafetyFlags;
-  onChange: (flags: SafetyFlags) => void;
+  flags: SafetyDetailFlags;
+  onChange: (flags: SafetyDetailFlags) => void;
   onNext: () => void;
   onBack: () => void;
   blocked: boolean;
 }
 
 const questions = [
-  { key: "selfHarm" as const, label: "Is the person currently at risk of harming themselves?" },
-  { key: "suicidal" as const, label: "Have they recently had suicidal thoughts?" },
-  { key: "harmOthers" as const, label: "Have they threatened harm to others?" },
+  {
+    key: "suicidalThoughts" as const,
+    label: "In the past month, have there been suicidal thoughts or wishing to be dead?",
+  },
+  {
+    key: "suicidalPlanOrIntent" as const,
+    label: "Has there been suicidal plan, preparation, or intent to act?",
+  },
+  {
+    key: "recentSelfHarmOrAttempt" as const,
+    label: "Any recent self-harm or suicide attempt (past 3 months)?",
+  },
+  {
+    key: "homicidalThoughtsOrThreat" as const,
+    label: "Any serious threats or thoughts of harming others?",
+  },
+  {
+    key: "violentPlanOrTarget" as const,
+    label: "Any identified target, violent plan, or weapon access concern?",
+  },
+  {
+    key: "psychosisOrManiaSigns" as const,
+    label: "Any psychosis/mania-like signs (hallucinations, severe disorganization, grandiosity)?",
+  },
+  {
+    key: "severeAggressionFireSettingWeapon" as const,
+    label: "Any severe aggression, fire-setting, or weapon use behavior?",
+  },
+  {
+    key: "severeIntoxicationOrWithdrawal" as const,
+    label: "Any severe intoxication or withdrawal concern requiring medical triage?",
+  },
+  {
+    key: "abuseOrNeglectConcern" as const,
+    label: "Any abuse, neglect, or safeguarding concern requiring mandatory review?",
+  },
 ];
 
 export function IntakeSafetyScreen({ flags, onChange, onNext, onBack, blocked }: IntakeSafetyScreenProps) {
@@ -52,7 +80,7 @@ export function IntakeSafetyScreen({ flags, onChange, onNext, onBack, blocked }:
           <h2 className="text-3xl font-semibold text-slate-900">Safety Screening</h2>
         </motion.div>
         <motion.p variants={itemVariants} className="mb-8 text-slate-600">
-          We need to ask a few important questions to make sure we provide the right level of care.
+          We need a thorough safety check first. A "Yes" to any item triggers immediate clinical review.
         </motion.p>
 
         <div className="mx-auto max-w-2xl space-y-4">
@@ -87,7 +115,7 @@ export function IntakeSafetyScreen({ flags, onChange, onNext, onBack, blocked }:
             <AlertBanner
               variant="emergency"
               title="Immediate Attention Required"
-              description="Based on your responses, we recommend contacting emergency services or proceeding to the nearest psychiatric emergency department."
+              description="A safety risk was identified. Automated routing is paused and this case should receive immediate clinician review."
               showPhone
             />
           </motion.div>

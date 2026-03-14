@@ -13,6 +13,10 @@ interface PatientInfo {
   age: string;
   gender: string;
   grade: string;
+  verbalCommunication: string;
+  developmentalDelayConcern: string;
+  autismConcern: string;
+  learningConcern: string;
   concern: string;
   description: string;
 }
@@ -109,6 +113,67 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
             onChange={(e) => update("grade", e.target.value)}
             className="h-11 rounded-xl border-slate-200/90 bg-white/85"
           />
+        </motion.div>
+
+        <motion.div variants={itemVariants} className="rounded-2xl border border-slate-200/80 bg-white/80 p-4">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">Communication & Development</h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="text-slate-700">Communication profile</Label>
+              <Select value={info.verbalCommunication} onValueChange={(v) => update("verbalCommunication", v)}>
+                <SelectTrigger className="h-11 rounded-xl border-slate-200/90 bg-white/85">
+                  <SelectValue placeholder="Select profile" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="verbal_typical">Verbal, age-typical</SelectItem>
+                  <SelectItem value="limited_verbal">Limited verbal</SelectItem>
+                  <SelectItem value="nonverbal">Nonverbal/assisted communication</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-700">Known developmental delay / ID?</Label>
+              <Select
+                value={info.developmentalDelayConcern}
+                onValueChange={(v) => update("developmentalDelayConcern", v)}
+              >
+                <SelectTrigger className="h-11 rounded-xl border-slate-200/90 bg-white/85">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                  <SelectItem value="unsure">Unsure</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-700">Autism diagnosis or current concern?</Label>
+              <Select value={info.autismConcern} onValueChange={(v) => update("autismConcern", v)}>
+                <SelectTrigger className="h-11 rounded-xl border-slate-200/90 bg-white/85">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                  <SelectItem value="unsure">Unsure</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-700">Major learning concern impacting function?</Label>
+              <Select value={info.learningConcern} onValueChange={(v) => update("learningConcern", v)}>
+                <SelectTrigger className="h-11 rounded-xl border-slate-200/90 bg-white/85">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                  <SelectItem value="unsure">Unsure</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
