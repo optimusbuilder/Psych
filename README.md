@@ -18,6 +18,16 @@ npm install
 npm run dev
 ```
 
+## Local Database (Postgres)
+```bash
+cp .env.example .env
+npm run db:up
+npm run db:migrate
+npm run db:seed
+```
+
+Reference: `docs/engineering/local-postgres.md`
+
 ## Delivery Plan by Phase
 
 Each phase has:
