@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { ProgressIndicator } from "@/components/progress-indicator"
@@ -225,6 +224,19 @@ function questionInputValue(answer: FamilyQuestionAnswer | undefined, kind: Fami
   return ""
 }
 
+function questionHelperText(question: FamilyQuestionSpec) {
+  switch (question.responseType) {
+    case "open_text":
+      return "Share what you have observed in your own words."
+    case "date_or_age":
+      return "You can enter a date of birth or age in years."
+    case "ack":
+      return "Please confirm to continue."
+    default:
+      return "Choose the option that best fits right now."
+  }
+}
+
 export function IntakeScreen() {
   const {
     intakeData,
@@ -249,6 +261,7 @@ export function IntakeScreen() {
   const [loadingError, setLoadingError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
 
   useEffect(() => {
     let isMounted = true
@@ -341,7 +354,37 @@ export function IntakeScreen() {
     isYesLike(answers["1B.3"]) ||
     isYesLike(answers["1B.4"])
 
-  const canProceed = !loading && (nodeQuestions.length === 0 || requiredMissing.length === 0)
+  const currentQuestion = nodeQuestions[currentQuestionIndex] ?? null
+  const missingCurrentQuestion =
+    currentQuestion?.required && !isAnswerComplete(currentQuestion, answers[currentQuestion.id])
+  const hasQuestionsInNode = nodeQuestions.length > 0
+  const isFinalSection = currentStep === steps.length - 1
+  const isFinalQuestionInSection = !hasQuestionsInNode || currentQuestionIndex === nodeQuestions.length - 1
+  const readyToSubmit = isFinalSection && isFinalQuestionInSection
+  const continueLabel = readyToSubmit
+    ? "Get Recommendations"
+    : hasQuestionsInNode && !isFinalQuestionInSection
+      ? "Next question"
+      : "Continue"
+  const headerBackLabel =
+    currentQuestionIndex > 0 ? "Previous question" : currentStep === 0 ? "Back to start" : "Previous section"
+  const canProceed =
+    !loading &&
+    !submitting &&
+    !loadingError &&
+    (!currentQuestion || !missingCurrentQuestion)
+
+  useEffect(() => {
+    setCurrentQuestionIndex(0)
+  }, [currentNode])
+
+  useEffect(() => {
+    if (nodeQuestions.length === 0) {
+      setCurrentQuestionIndex(0)
+      return
+    }
+    setCurrentQuestionIndex((previous) => Math.min(previous, nodeQuestions.length - 1))
+  }, [nodeQuestions.length])
 
   function updateAnswer(question: FamilyQuestionSpec, answer: FamilyQuestionAnswer | null) {
     setAnswers((previous) => {
@@ -391,8 +434,9 @@ export function IntakeScreen() {
                 value,
               })
             }}
-            rows={3}
-            placeholder="Type your response"
+            rows={5}
+            placeholder="Share what you have noticed"
+            className="rounded-2xl border-border/70 bg-background/70 px-4 py-3 text-base leading-relaxed placeholder:text-muted-foreground/80"
           />
         )
       }
@@ -412,6 +456,7 @@ export function IntakeScreen() {
               })
             }}
             placeholder="e.g. 2012-03-14 or 14"
+            className="h-12 rounded-2xl border-border/70 bg-background/70 px-4 text-base placeholder:text-muted-foreground/80"
           />
         )
       }
@@ -430,10 +475,10 @@ export function IntakeScreen() {
             {MILD_MODERATE_SEVERE_OPTIONS.map((option) => (
               <label
                 key={option.value}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border p-3 text-sm"
+                className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border border-border/70 bg-background/65 px-4 py-3 text-sm text-foreground transition-colors hover:border-primary/35"
               >
                 <RadioGroupItem value={option.value} id={`${question.id}-${option.value}`} />
-                <span>{option.label}</span>
+                <span className="font-medium">{option.label}</span>
               </label>
             ))}
           </RadioGroup>
@@ -470,10 +515,10 @@ export function IntakeScreen() {
             {options.map((option) => (
               <label
                 key={option.value}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border p-3 text-sm"
+                className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border border-border/70 bg-background/65 px-4 py-3 text-sm text-foreground transition-colors hover:border-primary/35"
               >
                 <RadioGroupItem value={option.value} id={`${question.id}-${option.value}`} />
-                <span>{option.label}</span>
+                <span className="font-medium">{option.label}</span>
               </label>
             ))}
           </RadioGroup>
@@ -486,6 +531,16 @@ export function IntakeScreen() {
 
   async function handleNext() {
     setSubmitError(null)
+
+    if (currentQuestion && missingCurrentQuestion) {
+      setSubmitError("Please answer this question before continuing.")
+      return
+    }
+
+    if (currentQuestionIndex < nodeQuestions.length - 1) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1)
+      return
+    }
 
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1)
@@ -558,6 +613,10 @@ export function IntakeScreen() {
   }
 
   function handleBack() {
+    if (currentQuestionIndex > 0) {
+      setCurrentQuestionIndex(currentQuestionIndex - 1)
+      return
+    }
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1)
       return
@@ -567,25 +626,26 @@ export function IntakeScreen() {
 
   return (
     <div className="min-h-screen bg-background bg-texture">
-      <div className="mx-auto max-w-3xl px-4 py-6 md:py-10">
-        <header className="mb-8">
+      <div className="mx-auto max-w-3xl px-4 py-8 md:py-14">
+        <header className="mb-12 space-y-4">
           <button
             onClick={handleBack}
             className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft size={18} />
-            {currentStep === 0 ? "Back to start" : "Previous section"}
+            {headerBackLabel}
           </button>
 
-          <h1 className="mb-2 font-serif text-2xl font-semibold text-foreground md:text-3xl">
+          <h1 className="font-serif text-3xl font-semibold text-foreground md:text-4xl">
             Family Intake Questionnaire
           </h1>
-          <p className="text-muted-foreground">
-            Complete each node to generate a deterministic referral recommendation.
+          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+            We will guide you one step at a time so we can understand your child&apos;s needs and
+            recommend the right next care options.
           </p>
         </header>
 
-        <Card className="mb-6 bg-card border-border">
+        <Card className="mb-8 border-border/70 bg-card/85 shadow-sm">
           <CardHeader>
             <div className="flex items-center gap-2">
               <UserRound className="h-4 w-4 text-primary" />
@@ -598,7 +658,7 @@ export function IntakeScreen() {
               value={childName}
               onChange={(event) => setChildName(event.target.value)}
               placeholder="First name"
-              className="max-w-sm"
+              className="h-12 max-w-sm rounded-2xl border-border/70 bg-background/75 px-4 text-base"
             />
           </CardContent>
         </Card>
@@ -606,11 +666,11 @@ export function IntakeScreen() {
         <ProgressIndicator
           steps={steps.map((node) => NODE_LABELS[node] ?? "Section")}
           currentStep={Math.min(currentStep, steps.length - 1)}
-          className="mb-8"
+          className="mb-10"
         />
 
         {hasImmediateSafetySignal && (
-          <Card className="mb-6 border-warning/35 bg-warning/10">
+          <Card className="mb-8 border-warning/35 bg-warning/10 shadow-sm">
             <CardContent className="flex items-start gap-2 p-4 text-sm text-foreground">
               <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
               <span>
@@ -622,80 +682,92 @@ export function IntakeScreen() {
         )}
 
         {loadingError && (
-          <Card className="mb-6 border-destructive/40 bg-destructive/5">
+          <Card className="mb-8 border-destructive/40 bg-destructive/5 shadow-sm">
             <CardContent className="p-4 text-sm text-destructive">{loadingError}</CardContent>
           </Card>
         )}
 
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle className="font-serif text-xl">
+        <Card className="border-border/70 bg-card/90 shadow-sm">
+          <CardHeader className="gap-4">
+            <CardTitle className="font-serif text-2xl leading-tight md:text-[2rem]">
               {NODE_LABELS[currentNode] ?? "Section"}
             </CardTitle>
-            <CardDescription>
-              {requiredMissing.length > 0
-                ? `${requiredMissing.length} required question(s) still need a response.`
-                : "Everything required in this section is complete."}
+            <CardDescription className="text-sm leading-relaxed text-muted-foreground">
+              {hasQuestionsInNode
+                ? `Question ${currentQuestionIndex + 1} of ${nodeQuestions.length} in this section.`
+                : "No questions are needed in this section based on earlier responses."}
             </CardDescription>
+            <p className="text-sm text-muted-foreground">
+              {requiredMissing.length > 0
+                ? `${requiredMissing.length} required question${requiredMissing.length === 1 ? "" : "s"} still need ${requiredMissing.length === 1 ? "a response" : "responses"} in this section.`
+                : "All required questions in this section are complete."}
+            </p>
           </CardHeader>
 
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-10 pb-8">
             {loading && <p className="text-sm text-muted-foreground">Loading question catalog...</p>}
 
-            {!loading && nodeQuestions.length === 0 && (
+            {!loading && !hasQuestionsInNode && (
               <p className="text-sm text-muted-foreground">
                 No questions are applicable for this section based on current responses.
               </p>
             )}
 
-            {!loading &&
-              nodeQuestions.map((question) => {
-                const missingRequired = question.required && !isAnswerComplete(question, answers[question.id])
+            {!loading && currentQuestion && (
+              <div
+                key={currentQuestion.id}
+                className="space-y-6 rounded-2xl border border-border/65 bg-background/65 p-5 md:p-7"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                    {currentQuestion.label}
+                  </p>
+                  {currentQuestion.required && (
+                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      Required
+                    </span>
+                  )}
+                </div>
 
-                return (
-                  <div key={question.id} className="rounded-xl border border-border p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{question.label}</p>
-                      </div>
-                      {question.required && (
-                        <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                          Required
-                        </span>
-                      )}
-                    </div>
+                <p className="font-serif text-[1.45rem] leading-tight text-foreground md:text-[1.9rem]">
+                  {currentQuestion.prompt}
+                </p>
 
-                    <Label className="mb-3 block text-sm text-foreground">{question.prompt}</Label>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {questionHelperText(currentQuestion)}
+                </p>
 
-                    {renderAnswerInput(question)}
+                {renderAnswerInput(currentQuestion)}
 
-                    {missingRequired && (
-                      <p className="mt-2 text-xs text-destructive">This question is required.</p>
-                    )}
-                  </div>
-                )
-              })}
+                {missingCurrentQuestion && (
+                  <p className="text-sm text-destructive">
+                    This question is required before you continue.
+                  </p>
+                )}
+              </div>
+            )}
 
             {submitError && <p className="text-sm text-destructive">{submitError}</p>}
           </CardContent>
         </Card>
 
-        <div className="mt-8 flex justify-between gap-3 border-t border-border pt-6">
-          <Button variant="outline" onClick={handleBack} disabled={submitting} className="gap-2">
+        <div className="mt-12 flex items-center justify-between gap-4 border-t border-border/70 pt-8">
+          <Button
+            variant="outline"
+            onClick={handleBack}
+            disabled={submitting}
+            className="h-11 rounded-xl border-border/70 px-5 text-sm"
+          >
             <ArrowLeft size={18} />
             Back
           </Button>
 
           <Button
             onClick={handleNext}
-            disabled={!canProceed || submitting || loading}
-            className="gap-2 bg-primary hover:bg-primary/90"
+            disabled={!canProceed || loading}
+            className="h-11 rounded-xl bg-primary px-6 text-sm hover:bg-primary/90"
           >
-            {submitting
-              ? "Submitting..."
-              : currentStep === steps.length - 1
-                ? "Get Recommendations"
-                : "Continue"}
+            {submitting ? "Submitting..." : continueLabel}
             <ArrowRight size={18} />
           </Button>
         </div>
