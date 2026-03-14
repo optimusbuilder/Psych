@@ -107,3 +107,79 @@ export const familyReferralCreateSchema = z.object({
 });
 
 export type FamilyReferralCreateInput = z.infer<typeof familyReferralCreateSchema>;
+
+const questionIdSchema = z
+  .string()
+  .regex(/^(ASQ-[1-5]|[1-7][A-Z]?\.[0-9]+|5\.0)$/);
+
+const yesNoAnswerSchema = z.object({
+  kind: z.literal("yes_no"),
+  value: z.enum(["yes", "no", "unclear", "declined"]),
+});
+
+const openTextAnswerSchema = z.object({
+  kind: z.literal("open_text"),
+  value: z.string().trim().min(1).max(4000),
+});
+
+const mildModSevereAnswerSchema = z.object({
+  kind: z.literal("mild_mod_severe"),
+  value: z.enum(["mild", "moderate", "severe"]),
+});
+
+const dateOrAgeAnswerSchema = z.object({
+  kind: z.literal("date_or_age"),
+  value: z.string().trim().min(1).max(80),
+});
+
+const ackAnswerSchema = z.object({
+  kind: z.literal("ack"),
+  value: z.string().trim().min(1).max(120).default("acknowledged"),
+});
+
+const confirmAnswerSchema = z.object({
+  kind: z.literal("confirm"),
+  value: z.enum(["yes", "no", "unclear", "declined"]),
+});
+
+export const familyQuestionAnswerSchema = z.union([
+  yesNoAnswerSchema,
+  openTextAnswerSchema,
+  mildModSevereAnswerSchema,
+  dateOrAgeAnswerSchema,
+  ackAnswerSchema,
+  confirmAnswerSchema,
+]);
+
+export const familyQuestionResponseSchema = z.object({
+  questionId: questionIdSchema,
+  rater: z.enum(["CG", "PT"]),
+  answer: familyQuestionAnswerSchema,
+  answeredAt: z.string().datetime().optional(),
+});
+
+export const familyQuestionnaireSubmissionSchema = z.object({
+  childName: z.string().trim().max(120).optional().default(""),
+  responses: z.array(familyQuestionResponseSchema).min(1),
+  metadata: z
+    .object({
+      locale: z.string().max(40).optional(),
+      source: z.enum(["web", "mobile", "api"]).optional(),
+      startedAt: z.string().datetime().optional(),
+    })
+    .optional(),
+});
+
+export const familyReferralSubmissionSchema = z.union([
+  familyReferralCreateSchema,
+  familyQuestionnaireSubmissionSchema,
+]);
+
+export type FamilyQuestionAnswerInput = z.infer<typeof familyQuestionAnswerSchema>;
+export type FamilyQuestionResponseInput = z.infer<typeof familyQuestionResponseSchema>;
+export type FamilyQuestionnaireSubmissionInput = z.infer<
+  typeof familyQuestionnaireSubmissionSchema
+>;
+export type FamilyReferralSubmissionInput = z.infer<
+  typeof familyReferralSubmissionSchema
+>;
