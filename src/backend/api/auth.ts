@@ -28,6 +28,15 @@ export function getRoleFromRequest(req: Request) {
   return validRoles.has(normalized as AppRole) ? (normalized as AppRole) : null;
 }
 
+export function getActorUserId(req: Request) {
+  const userId = req.header("x-user-id");
+  if (!userId) {
+    return null;
+  }
+  const normalized = userId.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function requireRoles(allowedRoles: AppRole[]) {
   const allowed = new Set<AppRole>(allowedRoles);
   return (req: Request, res: Response, next: NextFunction) => {

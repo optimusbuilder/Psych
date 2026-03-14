@@ -28,6 +28,11 @@ npm run db:seed
 
 Reference: `docs/engineering/local-postgres.md`
 
+## Run Backend API (Phase 3)
+```bash
+npm run api:start
+```
+
 ## Delivery Plan by Phase
 
 Each phase has:
