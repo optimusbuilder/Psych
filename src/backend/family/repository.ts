@@ -1,5 +1,9 @@
-import type { FamilyReferralCreateInput } from "./contracts";
-import { createFamilyRoutingOutput, type FamilyRoutingOutput } from "./routing";
+import {
+  familyReferralSubmissionSchema,
+  type FamilyReferralSubmissionInput,
+} from "./contracts";
+import { type FamilyRoutingOutput } from "./routing";
+import { createFamilyRoutingOutputFromSubmission } from "./submissionRouting";
 import { buildId } from "../intake/utils";
 
 type QueryResultRow = Record<string, unknown>;
@@ -20,6 +24,7 @@ export interface FamilyReferralDecisionSnapshot {
   specialistDescription: string;
   rationale: string[];
   nextSteps: string[];
+  instrumentPack: string[];
   reasonCodes: string[];
   engineVersion: string;
   aiExplanation: string | null;
@@ -30,7 +35,7 @@ export interface FamilyReferralRecord {
   status: "completed" | "safety_escalated";
   createdAt: string;
   updatedAt: string;
-  intake: FamilyReferralCreateInput;
+  intake: FamilyReferralSubmissionInput;
   decision: FamilyReferralDecisionSnapshot;
 }
 
@@ -68,6 +73,7 @@ function decisionFromRouting(routing: FamilyRoutingOutput): FamilyReferralDecisi
     specialistDescription: routing.specialistDescription,
     rationale: routing.rationale,
     nextSteps: routing.nextSteps,
+    instrumentPack: routing.instrumentPack,
     reasonCodes: routing.rulesResult.reasonCodes,
     engineVersion: routing.rulesResult.engineVersion,
     aiExplanation: null,
@@ -77,8 +83,8 @@ function decisionFromRouting(routing: FamilyRoutingOutput): FamilyReferralDecisi
 export class FamilyReferralRepository {
   constructor(private readonly db: SqlClient) {}
 
-  async createReferral(input: FamilyReferralCreateInput): Promise<FamilyReferralCreateResult> {
-    const routing = createFamilyRoutingOutput(input);
+  async createReferral(input: FamilyReferralSubmissionInput): Promise<FamilyReferralCreateResult> {
+    const routing = createFamilyRoutingOutputFromSubmission(input);
     const decision = decisionFromRouting(routing);
     const referralId = buildId("family-ref");
     const intakeRowId = buildId("family-intake");
@@ -219,7 +225,12 @@ export class FamilyReferralRepository {
 
     const row = result.rows[0];
     const intakeObject = parseJsonObject(row.intake_json);
-    const intake = intakeObject as FamilyReferralCreateInput;
+    const intakeParse = familyReferralSubmissionSchema.safeParse(intakeObject);
+    if (!intakeParse.success) {
+      throw new Error("Stored family referral intake payload is invalid.");
+    }
+    const intake = intakeParse.data;
+    const routing = createFamilyRoutingOutputFromSubmission(intake);
 
     return {
       referralId: row.referral_id,
@@ -236,6 +247,7 @@ export class FamilyReferralRepository {
         specialistDescription: row.specialist_description,
         rationale: parseStringArray(row.rationale_json),
         nextSteps: parseStringArray(row.next_steps_json),
+        instrumentPack: routing.instrumentPack,
         reasonCodes: parseStringArray(row.reason_codes_json),
         engineVersion: row.engine_version,
         aiExplanation: row.ai_explanation,

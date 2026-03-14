@@ -7,3 +7,6 @@ coverage/
 .env.*.local
 playwright-report/
 test-results/
+.next/
+new_frontend/.next/
+*.tsbuildinfo

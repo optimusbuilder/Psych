@@ -1,4 +1,5 @@
 import type { FamilyReferralRecord } from "./repository";
+import { isQuestionnaireSubmission } from "./submissionRouting";
 
 function escapePdfText(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -34,6 +35,24 @@ function appendSection(target: string[], title: string, lines: string[]) {
   target.push("");
 }
 
+function readAgeOrDobFromQuestionnaire(referral: FamilyReferralRecord) {
+  if (!isQuestionnaireSubmission(referral.intake)) {
+    return null;
+  }
+
+  const answer = referral.intake.responses.find((item) => item.questionId === "2.1")?.answer;
+  if (!answer) {
+    return null;
+  }
+
+  if (answer.kind === "date_or_age" || answer.kind === "open_text") {
+    const value = answer.value.trim();
+    return value.length > 0 ? value : null;
+  }
+
+  return null;
+}
+
 function buildReportLines(referral: FamilyReferralRecord) {
   const lines: string[] = [];
   const created = new Date(referral.createdAt).toLocaleString();
@@ -45,8 +64,12 @@ function buildReportLines(referral: FamilyReferralRecord) {
 
   appendSection(lines, "CHILD INFORMATION", [
     `Name: ${referral.intake.childName || "Not provided"}`,
-    `Age range: ${referral.intake.childAge}`,
-    `Gender: ${referral.intake.childGender}`,
+    isQuestionnaireSubmission(referral.intake)
+      ? `Age or DOB: ${readAgeOrDobFromQuestionnaire(referral) ?? "Not provided"}`
+      : `Age range: ${referral.intake.childAge}`,
+    isQuestionnaireSubmission(referral.intake)
+      ? "Gender: Not captured in this questionnaire mode"
+      : `Gender: ${referral.intake.childGender}`,
   ]);
 
   appendSection(lines, "RECOMMENDED SPECIALIST", [

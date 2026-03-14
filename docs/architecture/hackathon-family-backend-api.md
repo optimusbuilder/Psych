@@ -1,16 +1,38 @@
 # Hackathon Family Backend API
-Status: Implemented (MVP slice)  
+Status: Implemented (question-spec + legacy compatible)  
 Date: March 14, 2026
 
 ## Base
 All endpoints are served from `/api/v1`.
 
-## 1) Create Referral
+## 1) Question Catalog
+`GET /api/v1/family-referrals/question-spec`
+
+### Response
+```json
+{
+  "version": "question-spec-v1",
+  "questions": [
+    {
+      "id": "1B.1",
+      "node": 1,
+      "label": "Caregiver Self-Harm Concern",
+      "prompt": "...",
+      "responseType": "yes_no_unclear",
+      "raters": ["CG"],
+      "ageTargets": ["all"],
+      "required": true
+    }
+  ]
+}
+```
+
+## 2) Create Referral
 `POST /api/v1/family-referrals`
 
 ### Request body
-- Matches frontend intake model from `new_frontend/lib/app-context.tsx`.
-- Required keys:
+- Accepts either:
+1. Legacy condensed payload (existing fields):
   - `childAge`
   - `childGender`
   - `primaryConcerns`
@@ -22,6 +44,9 @@ All endpoints are served from `/api/v1`.
   - `familyHistory`
   - `previousTreatment`
   - `preferredApproach`
+2. Question-spec payload:
+   - `responses` (array of `{questionId,rater,answer,answeredAt?}`)
+   - Optional: `childName`, `metadata`
 
 ### Response
 ```json
@@ -29,6 +54,7 @@ All endpoints are served from `/api/v1`.
   "referralId": "family-ref-...",
   "status": "completed",
   "createdAt": "2026-03-14T...",
+  "intakeMode": "question_spec_v1",
   "intake": {},
   "recommendation": {
     "safetyGate": "clear",
@@ -40,6 +66,7 @@ All endpoints are served from `/api/v1`.
     "reasonCodes": [],
     "rationale": [],
     "nextSteps": [],
+    "instrumentPack": [],
     "engineVersion": "rules-v1.1.0",
     "aiExplanation": null
   },
@@ -54,19 +81,19 @@ All endpoints are served from `/api/v1`.
 }
 ```
 
-## 2) Get Referral
+## 3) Get Referral
 `GET /api/v1/family-referrals/:id`
 
 Returns the same response model as create.
 
-## 3) Download PDF
+## 4) Download PDF
 `GET /api/v1/family-referrals/:id/pdf`
 
 ### Response
 - Content-Type: `application/pdf`
 - Attachment filename: `cura-referral-<id>.pdf`
 
-## 4) AI Explanation
+## 5) AI Explanation
 `POST /api/v1/family-referrals/:id/ai-explain`
 
 ### Request body (optional)
@@ -92,7 +119,8 @@ If `GEMINI_API_KEY` is not set, endpoint returns a deterministic fallback explan
 ## Notes
 1. Final safety gate, urgency, and specialist routing are deterministic (rules engine).
 2. AI explanation does not override deterministic routing output.
-3. Family referral data is stored in:
+3. Node 7 instrument recommendations are returned in `recommendation.instrumentPack`.
+4. Family referral data is stored in:
    - `family_referrals`
    - `family_referral_intakes`
    - `family_referral_decisions`

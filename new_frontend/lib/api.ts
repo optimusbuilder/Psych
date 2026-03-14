@@ -1,7 +1,5 @@
 "use client"
 
-import type { IntakeData } from "@/lib/app-context"
-
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "")
 
 export class ApiError extends Error {
@@ -43,7 +41,14 @@ async function request<T>(path: string, init: RequestInit = {}) {
   }
 
   const raw = await response.text()
-  const body = raw ? JSON.parse(raw) : null
+  let body: unknown = null
+  if (raw) {
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      body = { message: raw }
+    }
+  }
 
   if (!response.ok) {
     throw new ApiError(response.status, body)
@@ -55,7 +60,8 @@ export interface FamilyReferralApiResponse {
   referralId: string
   status: string
   createdAt: string
-  intake: IntakeData
+  intakeMode?: "legacy_condensed" | "question_spec_v1"
+  intake: Record<string, unknown>
   recommendation: {
     safetyGate: "clear" | "urgent" | "immediate"
     urgencyLevel: "routine" | "priority" | "urgent" | "immediate"
@@ -66,8 +72,12 @@ export interface FamilyReferralApiResponse {
     reasonCodes: string[]
     rationale: string[]
     nextSteps: string[]
+    instrumentPack?: string[]
     engineVersion: string
     aiExplanation: string | null
+  }
+  questionSpec?: {
+    version: string
   }
   report: {
     pdfUrl: string
@@ -79,11 +89,106 @@ export interface FamilyReferralApiResponse {
   }
 }
 
-export async function createFamilyReferral(input: IntakeData) {
+export type FamilyQuestionResponseType =
+  | "ack"
+  | "yes_no"
+  | "yes_no_unclear"
+  | "open_text"
+  | "mild_mod_severe"
+  | "date_or_age"
+  | "confirm"
+
+export type FamilyQuestionRater = "CG" | "PT" | "CG+PT"
+
+export type FamilyQuestionAgeTarget =
+  | "all"
+  | "0-5"
+  | "6-12"
+  | "12+"
+  | "13+"
+  | "13-17"
+  | "18-25"
+  | "16-30m"
+  | "school-age+"
+
+export interface FamilyQuestionSpec {
+  id: string
+  node: 1 | 2 | 3 | 4 | 5 | 6 | 7
+  label: string
+  prompt: string
+  responseType: FamilyQuestionResponseType
+  raters: FamilyQuestionRater[]
+  ageTargets: FamilyQuestionAgeTarget[]
+  required: boolean
+  branch?: {
+    askIfQuestionId: string
+    askIfValue: "yes"
+  }
+}
+
+export interface FamilyQuestionSpecResponse {
+  version: string
+  questions: FamilyQuestionSpec[]
+}
+
+export type FamilyQuestionAnswer =
+  | {
+      kind: "yes_no"
+      value: "yes" | "no" | "unclear" | "declined"
+    }
+  | {
+      kind: "open_text"
+      value: string
+    }
+  | {
+      kind: "mild_mod_severe"
+      value: "mild" | "moderate" | "severe"
+    }
+  | {
+      kind: "date_or_age"
+      value: string
+    }
+  | {
+      kind: "ack"
+      value: string
+    }
+  | {
+      kind: "confirm"
+      value: "yes" | "no" | "unclear" | "declined"
+    }
+
+export interface FamilyQuestionResponseInput {
+  questionId: string
+  rater: "CG" | "PT"
+  answer: FamilyQuestionAnswer
+  answeredAt?: string
+}
+
+export interface FamilyQuestionnaireSubmissionInput {
+  childName?: string
+  responses: FamilyQuestionResponseInput[]
+  metadata?: {
+    locale?: string
+    source?: "web" | "mobile" | "api"
+    startedAt?: string
+  }
+}
+
+export async function fetchFamilyQuestionSpec() {
+  return request<FamilyQuestionSpecResponse>("/api/v1/family-referrals/question-spec", {
+    method: "GET",
+  })
+}
+
+export async function submitFamilyQuestionnaire(input: FamilyQuestionnaireSubmissionInput) {
   return request<FamilyReferralApiResponse>("/api/v1/family-referrals", {
     method: "POST",
     body: JSON.stringify(input),
   })
+}
+
+export async function createFamilyReferral(input: FamilyQuestionnaireSubmissionInput) {
+  return submitFamilyQuestionnaire(input)
 }
 
 export async function downloadFamilyReferralPdf(pdfPath: string) {

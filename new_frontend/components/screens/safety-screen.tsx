@@ -17,7 +17,7 @@ export function SafetyScreen() {
   const { setCurrentScreen, setCurrentStep, intakeData } = useApp()
 
   const handleBack = () => {
-    setCurrentStep(3) // Go back to safety section of intake
+    setCurrentStep(0)
     setCurrentScreen('intake')
   }
 

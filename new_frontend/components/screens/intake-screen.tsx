@@ -1,46 +1,81 @@
 "use client"
 
-import { useState } from "react"
-import { useApp, type IntakeData } from "@/lib/app-context"
-import { ApiError, createFamilyReferral } from "@/lib/api"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useApp } from "@/lib/app-context"
+import {
+  ApiError,
+  fetchFamilyQuestionSpec,
+  submitFamilyQuestionnaire,
+  type FamilyQuestionAnswer,
+  type FamilyQuestionAgeTarget,
+  type FamilyQuestionResponseInput,
+  type FamilyQuestionResponseType,
+  type FamilyQuestionSpec,
+} from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProgressIndicator } from "@/components/progress-indicator"
-import { ArrowLeft, ArrowRight, AlertTriangle } from "lucide-react"
+import { ArrowLeft, ArrowRight, AlertTriangle, UserRound } from "lucide-react"
 
-const STEPS = [
-  "Child Info",
-  "Concerns",
-  "Behaviors",
-  "Safety",
-  "Context",
-  "Preferences"
+const NODE_LABELS: Record<number, string> = {
+  1: "Safety",
+  2: "Age & Context",
+  3: "Communication",
+  4: "Neurodevelopmental",
+  5: "Symptoms",
+  6: "Functional Impact",
+  7: "Instrument Planning",
+}
+
+const YES_NO_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
 ]
 
-const concernOptions = [
-  { id: "anxiety", label: "Anxiety or excessive worry" },
-  { id: "depression", label: "Sadness or depression" },
-  { id: "anger", label: "Anger or irritability" },
-  { id: "attention", label: "Attention or focus issues" },
-  { id: "behavior", label: "Behavioral problems" },
-  { id: "trauma", label: "Trauma or past experiences" },
-  { id: "social", label: "Social difficulties" },
-  { id: "learning", label: "Learning challenges" },
-  { id: "eating", label: "Eating or body image concerns" },
-  { id: "other", label: "Other concerns" },
+const YES_NO_UNCLEAR_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+  { value: "unclear", label: "Unclear" },
+  { value: "declined", label: "Prefer not to answer" },
+]
+
+const CONFIRM_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+  { value: "unclear", label: "Unclear" },
+  { value: "declined", label: "Prefer not to answer" },
+]
+
+const MILD_MODERATE_SEVERE_OPTIONS = [
+  { value: "mild", label: "Mild" },
+  { value: "moderate", label: "Moderate" },
+  { value: "severe", label: "Severe" },
 ]
 
 function mapApiError(error: unknown) {
+  const technicalErrorPattern =
+    /relation .* does not exist|json parse|unrecognized token|syntax error|<!doctype html>|token </i
+
   if (error instanceof ApiError) {
     const body = error.body as Record<string, unknown> | null
     if (body && typeof body.message === "string") {
+      if (technicalErrorPattern.test(body.message)) {
+        return "The service is still starting up. Please wait a few seconds and try again."
+      }
       return body.message
+    }
+    if (body && typeof body.error === "string") {
+      if (technicalErrorPattern.test(body.error)) {
+        return "The service is still starting up. Please wait a few seconds and try again."
+      }
+      return body.error
+    }
+    if (error.status >= 500) {
+      return "We couldn't submit right now. Please try again in a moment."
     }
     return `Request failed (${error.status}). Please try again.`
   }
@@ -50,686 +85,621 @@ function mapApiError(error: unknown) {
   return "Something went wrong. Please try again."
 }
 
+function parseAgeYears(answer: FamilyQuestionAnswer | undefined) {
+  if (!answer) {
+    return null
+  }
+
+  const raw = answer.kind === "date_or_age" || answer.kind === "open_text" ? answer.value.trim() : ""
+  if (!raw) {
+    return null
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const dob = new Date(raw)
+    if (Number.isNaN(dob.getTime())) {
+      return null
+    }
+    const now = new Date()
+    let years = now.getUTCFullYear() - dob.getUTCFullYear()
+    const monthDelta = now.getUTCMonth() - dob.getUTCMonth()
+    if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < dob.getUTCDate())) {
+      years -= 1
+    }
+    return years >= 0 && years <= 120 ? years : null
+  }
+
+  const ageMatch = raw.match(/\d{1,2}/)
+  if (!ageMatch) {
+    return null
+  }
+  const age = Number.parseInt(ageMatch[0], 10)
+  return Number.isFinite(age) && age >= 0 && age <= 120 ? age : null
+}
+
+function matchesAgeTarget(target: FamilyQuestionAgeTarget, ageYears: number | null) {
+  if (target === "all") {
+    return true
+  }
+  if (ageYears === null) {
+    return true
+  }
+
+  switch (target) {
+    case "0-5":
+      return ageYears >= 0 && ageYears <= 5
+    case "6-12":
+      return ageYears >= 6 && ageYears <= 12
+    case "12+":
+      return ageYears >= 12
+    case "13+":
+      return ageYears >= 13
+    case "13-17":
+      return ageYears >= 13 && ageYears <= 17
+    case "18-25":
+      return ageYears >= 18 && ageYears <= 25
+    case "16-30m":
+      return ageYears >= 1 && ageYears <= 2
+    case "school-age+":
+      return ageYears >= 6
+    default:
+      return true
+  }
+}
+
+function isYesLike(answer: FamilyQuestionAnswer | undefined) {
+  if (!answer) {
+    return false
+  }
+  if (answer.kind !== "yes_no" && answer.kind !== "confirm") {
+    return false
+  }
+  return answer.value === "yes"
+}
+
+function isYesOrAmbiguous(answer: FamilyQuestionAnswer | undefined) {
+  if (!answer) {
+    return false
+  }
+  if (answer.kind !== "yes_no" && answer.kind !== "confirm") {
+    return false
+  }
+  return answer.value === "yes" || answer.value === "unclear" || answer.value === "declined"
+}
+
+function isAnswerComplete(question: FamilyQuestionSpec, answer: FamilyQuestionAnswer | undefined) {
+  if (!answer) {
+    return false
+  }
+
+  switch (question.responseType) {
+    case "ack":
+      return answer.kind === "ack" && answer.value.trim().length > 0
+    case "date_or_age":
+      return answer.kind === "date_or_age" && answer.value.trim().length > 0
+    case "open_text":
+      return answer.kind === "open_text" && answer.value.trim().length > 0
+    case "mild_mod_severe":
+      return answer.kind === "mild_mod_severe"
+    case "confirm":
+      return answer.kind === "confirm"
+    case "yes_no":
+    case "yes_no_unclear":
+      return answer.kind === "yes_no"
+    default:
+      return false
+  }
+}
+
+function defaultRater(question: FamilyQuestionSpec): "CG" | "PT" {
+  if (question.raters.includes("PT") && !question.raters.includes("CG")) {
+    return "PT"
+  }
+  return "CG"
+}
+
+function questionInputValue(answer: FamilyQuestionAnswer | undefined, kind: FamilyQuestionResponseType) {
+  if (!answer) {
+    return ""
+  }
+
+  if (kind === "yes_no" || kind === "yes_no_unclear") {
+    return answer.kind === "yes_no" ? answer.value : ""
+  }
+  if (kind === "confirm") {
+    return answer.kind === "confirm" ? answer.value : ""
+  }
+  if (kind === "open_text") {
+    return answer.kind === "open_text" ? answer.value : ""
+  }
+  if (kind === "date_or_age") {
+    return answer.kind === "date_or_age" ? answer.value : ""
+  }
+  if (kind === "mild_mod_severe") {
+    return answer.kind === "mild_mod_severe" ? answer.value : ""
+  }
+  if (kind === "ack") {
+    return answer.kind === "ack" ? answer.value : ""
+  }
+
+  return ""
+}
+
 export function IntakeScreen() {
-  const { 
-    intakeData, 
-    setIntakeData, 
-    setCurrentScreen, 
+  const {
+    intakeData,
+    setIntakeData,
+    setCurrentScreen,
     setRecommendation,
     currentStep,
-    setCurrentStep
+    setCurrentStep,
   } = useApp()
-  
-  const [localData, setLocalData] = useState<IntakeData>(intakeData)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const updateField = <K extends keyof IntakeData>(field: K, value: IntakeData[K]) => {
-    setLocalData(prev => ({ ...prev, [field]: value }))
+  const [childName, setChildName] = useState(intakeData.childName)
+  const [startedAt] = useState(intakeData.startedAt || new Date().toISOString())
+  const [questions, setQuestions] = useState<FamilyQuestionSpec[]>([])
+  const [answers, setAnswers] = useState<Record<string, FamilyQuestionAnswer>>(() => {
+    const initial: Record<string, FamilyQuestionAnswer> = {}
+    for (const response of intakeData.responses) {
+      initial[response.questionId] = response.answer
+    }
+    return initial
+  })
+  const [loading, setLoading] = useState(true)
+  const [loadingError, setLoadingError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadQuestionSpec() {
+      setLoading(true)
+      setLoadingError(null)
+      try {
+        const response = await fetchFamilyQuestionSpec()
+        if (!isMounted) {
+          return
+        }
+        const sorted = [...response.questions].sort((a, b) => {
+          if (a.node !== b.node) {
+            return a.node - b.node
+          }
+          return a.id.localeCompare(b.id)
+        })
+        setQuestions(sorted)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+        setLoadingError(mapApiError(error))
+      } finally {
+        if (isMounted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void loadQuestionSpec()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const steps = useMemo(() => {
+    const uniqueNodes = new Set<number>()
+    for (const question of questions) {
+      uniqueNodes.add(question.node)
+    }
+    const nodes = Array.from(uniqueNodes).sort((a, b) => a - b)
+    if (nodes.length === 0) {
+      return [1, 2, 3, 4, 5, 6, 7]
+    }
+    return nodes
+  }, [questions])
+
+  useEffect(() => {
+    if (currentStep > steps.length - 1) {
+      setCurrentStep(steps.length - 1)
+    }
+  }, [currentStep, setCurrentStep, steps.length])
+
+  const currentNode = steps[Math.min(currentStep, steps.length - 1)]
+  const ageYears = parseAgeYears(answers["2.1"])
+
+  const isQuestionVisible = useCallback(
+    (question: FamilyQuestionSpec) => {
+      const ageMatch = question.ageTargets.some((target) => matchesAgeTarget(target, ageYears))
+      if (!ageMatch) {
+        return false
+      }
+
+      if (!question.branch) {
+        return true
+      }
+
+      return isYesLike(answers[question.branch.askIfQuestionId])
+    },
+    [ageYears, answers],
+  )
+
+  const nodeQuestions = useMemo(
+    () => questions.filter((question) => question.node === currentNode && isQuestionVisible(question)),
+    [currentNode, questions, isQuestionVisible],
+  )
+
+  const requiredMissing = nodeQuestions.filter(
+    (question) => question.required && !isAnswerComplete(question, answers[question.id]),
+  )
+
+  const hasImmediateSafetySignal =
+    isYesOrAmbiguous(answers["1E.1"]) ||
+    isYesOrAmbiguous(answers["1E.3"]) ||
+    isYesOrAmbiguous(answers["ASQ-3"]) ||
+    isYesOrAmbiguous(answers["ASQ-5"]) ||
+    isYesLike(answers["1B.3"]) ||
+    isYesLike(answers["1B.4"])
+
+  const canProceed = !loading && (nodeQuestions.length === 0 || requiredMissing.length === 0)
+
+  function updateAnswer(question: FamilyQuestionSpec, answer: FamilyQuestionAnswer | null) {
+    setAnswers((previous) => {
+      const next = { ...previous }
+      if (!answer) {
+        delete next[question.id]
+        return next
+      }
+      next[question.id] = answer
+      return next
+    })
   }
 
-  const handleNext = async () => {
+  function renderAnswerInput(question: FamilyQuestionSpec) {
+    const currentValue = answers[question.id]
+
+    switch (question.responseType) {
+      case "ack": {
+        const acknowledged = currentValue?.kind === "ack"
+        return (
+          <Button
+            type="button"
+            variant={acknowledged ? "default" : "outline"}
+            onClick={() =>
+              updateAnswer(
+                question,
+                acknowledged ? null : { kind: "ack", value: "acknowledged" },
+              )
+            }
+          >
+            {acknowledged ? "Acknowledged" : "Acknowledge"}
+          </Button>
+        )
+      }
+      case "open_text": {
+        return (
+          <Textarea
+            value={questionInputValue(currentValue, "open_text")}
+            onChange={(event) => {
+              const value = event.target.value
+              if (!value.trim()) {
+                updateAnswer(question, null)
+                return
+              }
+              updateAnswer(question, {
+                kind: "open_text",
+                value,
+              })
+            }}
+            rows={3}
+            placeholder="Type your response"
+          />
+        )
+      }
+      case "date_or_age": {
+        return (
+          <Input
+            value={questionInputValue(currentValue, "date_or_age")}
+            onChange={(event) => {
+              const value = event.target.value
+              if (!value.trim()) {
+                updateAnswer(question, null)
+                return
+              }
+              updateAnswer(question, {
+                kind: "date_or_age",
+                value,
+              })
+            }}
+            placeholder="e.g. 2012-03-14 or 14"
+          />
+        )
+      }
+      case "mild_mod_severe": {
+        return (
+          <RadioGroup
+            value={questionInputValue(currentValue, "mild_mod_severe")}
+            onValueChange={(value) => {
+              updateAnswer(question, {
+                kind: "mild_mod_severe",
+                value: value as "mild" | "moderate" | "severe",
+              })
+            }}
+            className="grid gap-3 md:grid-cols-3"
+          >
+            {MILD_MODERATE_SEVERE_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border p-3 text-sm"
+              >
+                <RadioGroupItem value={option.value} id={`${question.id}-${option.value}`} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </RadioGroup>
+        )
+      }
+      case "yes_no":
+      case "yes_no_unclear":
+      case "confirm": {
+        const options =
+          question.responseType === "yes_no"
+            ? YES_NO_OPTIONS
+            : question.responseType === "confirm"
+              ? CONFIRM_OPTIONS
+              : YES_NO_UNCLEAR_OPTIONS
+
+        return (
+          <RadioGroup
+            value={questionInputValue(currentValue, question.responseType)}
+            onValueChange={(value) => {
+              if (question.responseType === "confirm") {
+                updateAnswer(question, {
+                  kind: "confirm",
+                  value: value as "yes" | "no" | "unclear" | "declined",
+                })
+                return
+              }
+              updateAnswer(question, {
+                kind: "yes_no",
+                value: value as "yes" | "no" | "unclear" | "declined",
+              })
+            }}
+            className="grid gap-3 md:grid-cols-2"
+          >
+            {options.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border p-3 text-sm"
+              >
+                <RadioGroupItem value={option.value} id={`${question.id}-${option.value}`} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </RadioGroup>
+        )
+      }
+      default:
+        return null
+    }
+  }
+
+  async function handleNext() {
     setSubmitError(null)
 
-    // Check for immediate safety concerns at step 3 (Safety section)
-    if (currentStep === 3) {
-      if (localData.suicidalIdeation === 'yes' || localData.selfHarmBehavior === 'current') {
-        setIntakeData(localData)
-        setCurrentScreen('safety')
-        return
-      }
+    if (currentStep < steps.length - 1) {
+      setCurrentStep(currentStep + 1)
+      return
     }
 
-    if (currentStep < STEPS.length - 1) {
-      setCurrentStep(currentStep + 1)
-    } else {
-      setSubmitting(true)
-      try {
-        const response = await createFamilyReferral(localData)
-        setIntakeData(localData)
-        setRecommendation({
-          referralId: response.referralId,
-          pdfUrl: response.report.pdfUrl,
-          specialistType: response.recommendation.specialistType,
-          specialistDescription: response.recommendation.specialistDescription,
-          urgencyLevel: response.recommendation.urgencyLevel,
-          safetyGate: response.recommendation.safetyGate,
-          reasonCodes: response.recommendation.reasonCodes,
-          aiExplanation: response.recommendation.aiExplanation,
-          rationale: response.recommendation.rationale,
-          nextSteps: response.recommendation.nextSteps,
-        })
-
-        if (response.recommendation.urgencyLevel === "immediate") {
-          setCurrentScreen("safety")
-        } else {
-          setCurrentScreen("results")
-        }
-      } catch (error) {
-        setSubmitError(mapApiError(error))
-      } finally {
-        setSubmitting(false)
+    const responses: FamilyQuestionResponseInput[] = []
+    for (const question of questions) {
+      if (!isQuestionVisible(question)) {
+        continue
       }
+      const answer = answers[question.id]
+      if (!answer) {
+        continue
+      }
+      responses.push({
+        questionId: question.id,
+        rater: defaultRater(question),
+        answer,
+        answeredAt: new Date().toISOString(),
+      })
+    }
+
+    if (responses.length === 0) {
+      setSubmitError("Please answer at least one question before submitting.")
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const response = await submitFamilyQuestionnaire({
+        childName: childName.trim() || undefined,
+        responses,
+        metadata: {
+          locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+          source: "web",
+          startedAt,
+        },
+      })
+
+      setIntakeData({
+        childName: childName.trim(),
+        responses,
+        startedAt,
+      })
+      setRecommendation({
+        referralId: response.referralId,
+        pdfUrl: response.report.pdfUrl,
+        specialistType: response.recommendation.specialistType,
+        specialistDescription: response.recommendation.specialistDescription,
+        urgencyLevel: response.recommendation.urgencyLevel,
+        safetyGate: response.recommendation.safetyGate,
+        reasonCodes: response.recommendation.reasonCodes,
+        aiExplanation: response.recommendation.aiExplanation,
+        rationale: response.recommendation.rationale,
+        nextSteps: response.recommendation.nextSteps,
+        instrumentPack: response.recommendation.instrumentPack ?? [],
+      })
+
+      if (response.recommendation.urgencyLevel === "immediate") {
+        setCurrentScreen("safety")
+      } else {
+        setCurrentScreen("results")
+      }
+    } catch (error) {
+      setSubmitError(mapApiError(error))
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const handleBack = () => {
+  function handleBack() {
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1)
-    } else {
-      setCurrentScreen('start')
+      return
     }
-  }
-
-  const canProceed = () => {
-    switch (currentStep) {
-      case 0: // Child Info
-        return localData.childAge && localData.childGender
-      case 1: // Concerns
-        return localData.primaryConcerns.length > 0 && localData.concernDuration
-      case 2: // Behaviors
-        return localData.moodChanges && localData.sleepIssues
-      case 3: // Safety
-        return localData.selfHarmThoughts && localData.suicidalIdeation
-      case 4: // Context
-        return localData.familyHistory && localData.previousTreatment
-      case 5: // Preferences
-        return localData.preferredApproach
-      default:
-        return true
-    }
+    setCurrentScreen("start")
   }
 
   return (
     <div className="min-h-screen bg-background bg-texture">
-      <div className="max-w-3xl mx-auto px-4 py-6 md:py-10">
-        {/* Header */}
+      <div className="mx-auto max-w-3xl px-4 py-6 md:py-10">
         <header className="mb-8">
           <button
             onClick={handleBack}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-4"
+            className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft size={18} />
-            <span className="text-sm font-medium">
-              {currentStep === 0 ? 'Back to start' : 'Previous section'}
-            </span>
+            {currentStep === 0 ? "Back to start" : "Previous section"}
           </button>
-          
-          <h1 className="font-serif text-2xl md:text-3xl font-semibold text-foreground mb-2">
-            Tell us about your child
+
+          <h1 className="mb-2 font-serif text-2xl font-semibold text-foreground md:text-3xl">
+            Family Intake Questionnaire
           </h1>
           <p className="text-muted-foreground">
-            Your answers help us recommend the most appropriate specialist.
+            Complete each node to generate a deterministic referral recommendation.
           </p>
         </header>
 
-        {/* Progress */}
-        <ProgressIndicator 
-          steps={STEPS} 
-          currentStep={currentStep} 
+        <Card className="mb-6 bg-card border-border">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <UserRound className="h-4 w-4 text-primary" />
+              <CardTitle className="font-serif text-lg">Child Name (optional)</CardTitle>
+            </div>
+            <CardDescription>Used in summaries and safety messaging only.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Input
+              value={childName}
+              onChange={(event) => setChildName(event.target.value)}
+              placeholder="First name"
+              className="max-w-sm"
+            />
+          </CardContent>
+        </Card>
+
+        <ProgressIndicator
+          steps={steps.map((node) => NODE_LABELS[node] ?? "Section")}
+          currentStep={Math.min(currentStep, steps.length - 1)}
           className="mb-8"
         />
 
-        {/* Form Sections */}
-        <div className="animate-fade-in" key={currentStep}>
-          {currentStep === 0 && (
-            <ChildInfoSection data={localData} updateField={updateField} />
-          )}
-          {currentStep === 1 && (
-            <ConcernsSection data={localData} updateField={updateField} />
-          )}
-          {currentStep === 2 && (
-            <BehaviorsSection data={localData} updateField={updateField} />
-          )}
-          {currentStep === 3 && (
-            <SafetySection data={localData} updateField={updateField} />
-          )}
-          {currentStep === 4 && (
-            <ContextSection data={localData} updateField={updateField} />
-          )}
-          {currentStep === 5 && (
-            <PreferencesSection data={localData} updateField={updateField} />
-          )}
-        </div>
-
-        {submitError && (
-          <Card className="mt-6 border-destructive/40 bg-destructive/5">
-            <CardContent className="p-4">
-              <p className="text-sm text-destructive">{submitError}</p>
+        {hasImmediateSafetySignal && (
+          <Card className="mb-6 border-warning/35 bg-warning/10">
+            <CardContent className="flex items-start gap-2 p-4 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
+              <span>
+                You marked possible safety concerns. We will show urgent support resources
+                immediately after submission.
+              </span>
             </CardContent>
           </Card>
         )}
 
-        {/* Navigation */}
-        <div className="flex justify-between mt-8 pt-6 border-t border-border">
-          <Button
-            variant="outline"
-            onClick={handleBack}
-            disabled={submitting}
-            className="gap-2"
-          >
+        {loadingError && (
+          <Card className="mb-6 border-destructive/40 bg-destructive/5">
+            <CardContent className="p-4 text-sm text-destructive">{loadingError}</CardContent>
+          </Card>
+        )}
+
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="font-serif text-xl">
+              {NODE_LABELS[currentNode] ?? "Section"}
+            </CardTitle>
+            <CardDescription>
+              {requiredMissing.length > 0
+                ? `${requiredMissing.length} required question(s) still need a response.`
+                : "Everything required in this section is complete."}
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-6">
+            {loading && <p className="text-sm text-muted-foreground">Loading question catalog...</p>}
+
+            {!loading && nodeQuestions.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No questions are applicable for this section based on current responses.
+              </p>
+            )}
+
+            {!loading &&
+              nodeQuestions.map((question) => {
+                const missingRequired = question.required && !isAnswerComplete(question, answers[question.id])
+
+                return (
+                  <div key={question.id} className="rounded-xl border border-border p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{question.label}</p>
+                      </div>
+                      {question.required && (
+                        <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                          Required
+                        </span>
+                      )}
+                    </div>
+
+                    <Label className="mb-3 block text-sm text-foreground">{question.prompt}</Label>
+
+                    {renderAnswerInput(question)}
+
+                    {missingRequired && (
+                      <p className="mt-2 text-xs text-destructive">This question is required.</p>
+                    )}
+                  </div>
+                )
+              })}
+
+            {submitError && <p className="text-sm text-destructive">{submitError}</p>}
+          </CardContent>
+        </Card>
+
+        <div className="mt-8 flex justify-between gap-3 border-t border-border pt-6">
+          <Button variant="outline" onClick={handleBack} disabled={submitting} className="gap-2">
             <ArrowLeft size={18} />
             Back
           </Button>
-          
+
           <Button
             onClick={handleNext}
-            disabled={!canProceed() || submitting}
+            disabled={!canProceed || submitting || loading}
             className="gap-2 bg-primary hover:bg-primary/90"
           >
-            {submitting ? "Submitting..." : currentStep === STEPS.length - 1 ? 'Get Recommendations' : 'Continue'}
+            {submitting
+              ? "Submitting..."
+              : currentStep === steps.length - 1
+                ? "Get Recommendations"
+                : "Continue"}
             <ArrowRight size={18} />
           </Button>
         </div>
       </div>
     </div>
-  )
-}
-
-// Section Components
-interface SectionProps {
-  data: IntakeData
-  updateField: <K extends keyof IntakeData>(field: K, value: IntakeData[K]) => void
-}
-
-function ChildInfoSection({ data, updateField }: SectionProps) {
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="font-serif text-xl">Child Information</CardTitle>
-        <CardDescription>
-          Basic information about your child to help personalize recommendations.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="childName">Child&apos;s first name (optional)</Label>
-          <Input
-            id="childName"
-            placeholder="First name only"
-            value={data.childName}
-            onChange={(e) => updateField('childName', e.target.value)}
-            className="max-w-sm"
-          />
-          <p className="text-xs text-muted-foreground">
-            Used only to personalize your results. You can leave this blank.
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="childAge">Age range *</Label>
-          <Select value={data.childAge} onValueChange={(value) => updateField('childAge', value)}>
-            <SelectTrigger className="max-w-sm">
-              <SelectValue placeholder="Select age range" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="3-5">3-5 years (preschool)</SelectItem>
-              <SelectItem value="6-8">6-8 years (early elementary)</SelectItem>
-              <SelectItem value="9-11">9-11 years (late elementary)</SelectItem>
-              <SelectItem value="12-14">12-14 years (middle school)</SelectItem>
-              <SelectItem value="15-17">15-17 years (high school)</SelectItem>
-              <SelectItem value="18+">18+ years (young adult)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Gender *</Label>
-          <RadioGroup
-            value={data.childGender}
-            onValueChange={(value) => updateField('childGender', value)}
-            className="grid grid-cols-2 md:grid-cols-4 gap-3"
-          >
-            {['Female', 'Male', 'Non-binary', 'Prefer not to say'].map((option) => (
-              <div key={option} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.toLowerCase().replace(/ /g, '-')} id={option} />
-                <Label htmlFor={option} className="font-normal cursor-pointer">
-                  {option}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function ConcernsSection({ data, updateField }: SectionProps) {
-  const toggleConcern = (concernId: string) => {
-    const current = data.primaryConcerns
-    const updated = current.includes(concernId)
-      ? current.filter(c => c !== concernId)
-      : [...current, concernId]
-    updateField('primaryConcerns', updated)
-  }
-
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="font-serif text-xl">Primary Concerns</CardTitle>
-        <CardDescription>
-          What brings you here today? Select all that apply.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="grid gap-3">
-          {concernOptions.map((concern) => (
-            <label
-              key={concern.id}
-              className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary/50 cursor-pointer transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5"
-            >
-              <Checkbox
-                id={concern.id}
-                checked={data.primaryConcerns.includes(concern.id)}
-                onCheckedChange={() => toggleConcern(concern.id)}
-              />
-              <span className="text-foreground">{concern.label}</span>
-            </label>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="concernDescription">
-            Can you describe what you&apos;ve been noticing? (optional)
-          </Label>
-          <Textarea
-            id="concernDescription"
-            placeholder="Share any specific behaviors, situations, or changes you've observed..."
-            value={data.concernDescription}
-            onChange={(e) => updateField('concernDescription', e.target.value)}
-            rows={4}
-          />
-        </div>
-
-        <div className="space-y-3">
-          <Label>How long have these concerns been present? *</Label>
-          <RadioGroup
-            value={data.concernDuration}
-            onValueChange={(value) => updateField('concernDuration', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'less-than-1-month', label: 'Less than 1 month' },
-              { value: '1-3-months', label: '1-3 months' },
-              { value: '3-6-months', label: '3-6 months' },
-              { value: 'more-than-6-months', label: 'More than 6 months' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={option.value} />
-                <Label htmlFor={option.value} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function BehaviorsSection({ data, updateField }: SectionProps) {
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="font-serif text-xl">Behavioral Observations</CardTitle>
-        <CardDescription>
-          Help us understand how your child has been doing day-to-day.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-3">
-          <Label>Changes in mood or emotional regulation *</Label>
-          <RadioGroup
-            value={data.moodChanges}
-            onValueChange={(value) => updateField('moodChanges', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'none', label: 'No significant changes' },
-              { value: 'mild', label: 'Mild - occasional mood swings or irritability' },
-              { value: 'moderate', label: 'Moderate - frequent mood changes affecting daily life' },
-              { value: 'severe', label: 'Severe - intense emotions that are hard to manage' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`mood-${option.value}`} />
-                <Label htmlFor={`mood-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Sleep patterns *</Label>
-          <RadioGroup
-            value={data.sleepIssues}
-            onValueChange={(value) => updateField('sleepIssues', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'normal', label: 'Sleeping normally' },
-              { value: 'difficulty-falling', label: 'Difficulty falling asleep' },
-              { value: 'difficulty-staying', label: 'Waking during night or early morning' },
-              { value: 'sleeping-more', label: 'Sleeping much more than usual' },
-              { value: 'nightmares', label: 'Frequent nightmares or night terrors' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`sleep-${option.value}`} />
-                <Label htmlFor={`sleep-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Changes in appetite or eating</Label>
-          <RadioGroup
-            value={data.appetiteChanges}
-            onValueChange={(value) => updateField('appetiteChanges', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'normal', label: 'No significant changes' },
-              { value: 'decreased', label: 'Eating less than usual' },
-              { value: 'increased', label: 'Eating more than usual' },
-              { value: 'restrictive', label: 'Avoiding certain foods or food groups' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`appetite-${option.value}`} />
-                <Label htmlFor={`appetite-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Social interactions</Label>
-          <RadioGroup
-            value={data.socialWithdrawal}
-            onValueChange={(value) => updateField('socialWithdrawal', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'normal', label: 'Maintaining friendships and social activities' },
-              { value: 'some', label: 'Some withdrawal from friends or activities' },
-              { value: 'significant', label: 'Significant withdrawal or isolation' },
-              { value: 'conflict', label: 'Increased conflicts with peers' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`social-${option.value}`} />
-                <Label htmlFor={`social-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Impact on school or learning</Label>
-          <RadioGroup
-            value={data.academicImpact}
-            onValueChange={(value) => updateField('academicImpact', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'none', label: 'No noticeable impact' },
-              { value: 'mild', label: 'Mild - occasional difficulty focusing' },
-              { value: 'moderate', label: 'Moderate - grades or performance declining' },
-              { value: 'significant', label: 'Significant - major academic difficulties' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`academic-${option.value}`} />
-                <Label htmlFor={`academic-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function SafetySection({ data, updateField }: SectionProps) {
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-warning/10">
-            <AlertTriangle className="w-5 h-5 text-warning" />
-          </div>
-          <div>
-            <CardTitle className="font-serif text-xl">Safety Assessment</CardTitle>
-            <CardDescription>
-              These questions help us ensure we recommend the right level of care. 
-              Your honest answers are important.
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="p-4 rounded-lg bg-muted/50 border border-border">
-          <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">Confidentiality note:</strong> Your responses 
-            are private. If immediate safety concerns are indicated, we will provide crisis 
-            resources and recommend emergency services.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Has your child expressed any thoughts of hurting themselves? *</Label>
-          <RadioGroup
-            value={data.selfHarmThoughts}
-            onValueChange={(value) => updateField('selfHarmThoughts', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'no', label: 'No' },
-              { value: 'past', label: 'Yes, in the past but not currently' },
-              { value: 'yes', label: 'Yes, currently or recently' },
-              { value: 'unsure', label: 'I\'m not sure' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`selfharm-thought-${option.value}`} />
-                <Label htmlFor={`selfharm-thought-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Has your child engaged in any self-harm behaviors?</Label>
-          <RadioGroup
-            value={data.selfHarmBehavior}
-            onValueChange={(value) => updateField('selfHarmBehavior', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'no', label: 'No' },
-              { value: 'past', label: 'Yes, in the past but not currently' },
-              { value: 'current', label: 'Yes, currently or recently' },
-              { value: 'unsure', label: 'I\'m not sure' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`selfharm-behavior-${option.value}`} />
-                <Label htmlFor={`selfharm-behavior-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Has your child expressed any thoughts about not wanting to live or suicidal thoughts? *</Label>
-          <RadioGroup
-            value={data.suicidalIdeation}
-            onValueChange={(value) => updateField('suicidalIdeation', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'no', label: 'No' },
-              { value: 'passive', label: 'Passive thoughts (e.g., "I wish I wasn\'t here")' },
-              { value: 'past', label: 'Yes, in the past but not currently' },
-              { value: 'yes', label: 'Yes, currently or recently' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`suicidal-${option.value}`} />
-                <Label htmlFor={`suicidal-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function ContextSection({ data, updateField }: SectionProps) {
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="font-serif text-xl">Family & History Context</CardTitle>
-        <CardDescription>
-          This information helps us understand the full picture and make better recommendations.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-3">
-          <Label>Is there a family history of mental health conditions? *</Label>
-          <RadioGroup
-            value={data.familyHistory}
-            onValueChange={(value) => updateField('familyHistory', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'no', label: 'No known family history' },
-              { value: 'yes', label: 'Yes, there is family history' },
-              { value: 'unsure', label: 'I\'m not sure' },
-              { value: 'prefer-not', label: 'Prefer not to say' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`family-${option.value}`} />
-                <Label htmlFor={`family-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Recent significant life changes or stressors</Label>
-          <Select value={data.recentLifeChanges} onValueChange={(value) => updateField('recentLifeChanges', value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select if applicable" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">No significant changes</SelectItem>
-              <SelectItem value="family-change">Family change (divorce, separation, new sibling)</SelectItem>
-              <SelectItem value="move">Recent move or school change</SelectItem>
-              <SelectItem value="loss">Loss of a loved one or pet</SelectItem>
-              <SelectItem value="illness">Illness or medical concerns</SelectItem>
-              <SelectItem value="academic">Academic pressure or transition</SelectItem>
-              <SelectItem value="social">Social difficulties (bullying, friendship issues)</SelectItem>
-              <SelectItem value="other">Other significant change</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Has your child received mental health treatment before? *</Label>
-          <RadioGroup
-            value={data.previousTreatment}
-            onValueChange={(value) => updateField('previousTreatment', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'no', label: 'No previous treatment' },
-              { value: 'yes-helpful', label: 'Yes, and it was helpful' },
-              { value: 'yes-not-helpful', label: 'Yes, but it wasn\'t helpful' },
-              { value: 'yes-ongoing', label: 'Yes, currently in treatment' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`treatment-${option.value}`} />
-                <Label htmlFor={`treatment-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function PreferencesSection({ data, updateField }: SectionProps) {
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="font-serif text-xl">Your Preferences</CardTitle>
-        <CardDescription>
-          Help us tailor our recommendation to what works best for your family.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-3">
-          <Label>What approach feels most comfortable for your family? *</Label>
-          <RadioGroup
-            value={data.preferredApproach}
-            onValueChange={(value) => updateField('preferredApproach', value)}
-            className="space-y-2"
-          >
-            {[
-              { value: 'therapy-only', label: 'Prefer to start with therapy only' },
-              { value: 'open-medication', label: 'Open to medication if recommended' },
-              { value: 'evaluation', label: 'Want a full evaluation before deciding' },
-              { value: 'unsure', label: 'Not sure - would like guidance' },
-            ].map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <RadioGroupItem value={option.value} id={`approach-${option.value}`} />
-                <Label htmlFor={`approach-${option.value}`} className="font-normal cursor-pointer">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Insurance type</Label>
-          <Select value={data.insuranceType} onValueChange={(value) => updateField('insuranceType', value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select insurance type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="private">Private insurance</SelectItem>
-              <SelectItem value="medicaid">Medicaid / State insurance</SelectItem>
-              <SelectItem value="medicare">Medicare</SelectItem>
-              <SelectItem value="military">Military / Tricare</SelectItem>
-              <SelectItem value="self-pay">Self-pay / No insurance</SelectItem>
-              <SelectItem value="other">Other</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            This helps us consider provider availability and coverage options.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
   )
 }

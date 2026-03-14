@@ -15,7 +15,29 @@ Target architecture: both entry points call one deterministic clinical triage en
 ## Local Setup
 ```bash
 npm install
+npm --prefix new_frontend install
 npm run dev
+```
+
+## Run Everything (DB + Backend + Both Frontends)
+```bash
+npm run dev:all
+```
+
+This starts:
+- Postgres + migrations + seed
+- Backend API (`http://localhost:4000`)
+- Vite app (`http://localhost:8080`)
+- `new_frontend` Next app (`http://localhost:3000`)
+
+If Docker is unavailable but your database is already running, skip DB bootstrap:
+```bash
+SKIP_DB_BOOT=1 npm run dev:all
+```
+
+If your DB schema/data is stale and you want a clean rebuild:
+```bash
+DB_BOOT_MODE=reset npm run dev:all
 ```
 
 ## Local Database (Postgres)
@@ -35,10 +57,15 @@ npm run api:start
 
 ## Family Referral MVP API (Hackathon)
 The family self-service flow is available at:
+- `GET /api/v1/family-referrals/question-spec`
 - `POST /api/v1/family-referrals`
 - `GET /api/v1/family-referrals/:id`
 - `GET /api/v1/family-referrals/:id/pdf`
 - `POST /api/v1/family-referrals/:id/ai-explain`
+
+`POST /api/v1/family-referrals` accepts both:
+- legacy condensed intake payloads
+- question-spec payloads (`responses[]`)
 
 Reference: `docs/architecture/hackathon-family-backend-api.md`
 

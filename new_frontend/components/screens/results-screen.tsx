@@ -144,6 +144,31 @@ export function ResultsScreen() {
           </CardContent>
         </Card>
 
+        {recommendation.instrumentPack.length > 0 && (
+          <Card className="bg-card border-border mb-6 opacity-0 animate-slide-up stagger-3">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-primary" />
+                </div>
+                <CardTitle className="font-serif text-lg">Recommended Screening Pack</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3">
+                {recommendation.instrumentPack.map((item, index) => (
+                  <li key={item} className="flex gap-3">
+                    <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-sm font-medium">
+                      {index + 1}
+                    </span>
+                    <span className="text-foreground leading-relaxed">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-4 mb-8 opacity-0 animate-slide-up stagger-4">
           <Button

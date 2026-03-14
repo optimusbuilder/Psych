@@ -11,11 +11,17 @@ import {
   symptomSchema,
 } from "../intake/contracts";
 import { IntakeRepository, type SqlClient } from "../intake/repository";
-import { familyReferralCreateSchema } from "../family/contracts";
+import { familyReferralSubmissionSchema } from "../family/contracts";
 import { FamilyReferralRepository, type FamilyReferralRecord } from "../family/repository";
 import { generateReferralPdf } from "../family/pdf";
-import { buildRulesInputFromFamilyIntake } from "../family/routing";
-import { evaluateTriageRules } from "../rules/engine";
+import {
+  FAMILY_QUESTION_SPECS,
+  FAMILY_QUESTION_SPEC_VERSION,
+} from "../family/questionSpec";
+import {
+  createFamilyRoutingOutputFromSubmission,
+  isQuestionnaireSubmission,
+} from "../family/submissionRouting";
 import { TriageAIService } from "../ai/service";
 import { getActorUserId, getRoleFromRequest, requireRoles } from "./auth";
 
@@ -139,10 +145,12 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
   }
 
   function toFamilyReferralApiResponse(referral: FamilyReferralRecord) {
+    const questionnaireMode = isQuestionnaireSubmission(referral.intake);
     return {
       referralId: referral.referralId,
       status: referral.status,
       createdAt: referral.createdAt,
+      intakeMode: questionnaireMode ? "question_spec_v1" : "legacy_condensed",
       intake: referral.intake,
       recommendation: {
         safetyGate: referral.decision.safetyGate,
@@ -154,9 +162,16 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
         reasonCodes: referral.decision.reasonCodes,
         rationale: referral.decision.rationale,
         nextSteps: referral.decision.nextSteps,
+        instrumentPack: referral.decision.instrumentPack,
         engineVersion: referral.decision.engineVersion,
         aiExplanation: referral.decision.aiExplanation,
       },
+      questionSpec:
+        questionnaireMode
+          ? {
+              version: FAMILY_QUESTION_SPEC_VERSION,
+            }
+          : undefined,
       report: {
         pdfUrl: `/api/v1/family-referrals/${referral.referralId}/pdf`,
       },
@@ -274,8 +289,15 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
     res.status(200).json({ ok: true });
   });
 
+  app.get("/api/v1/family-referrals/question-spec", (_req, res) => {
+    return res.status(200).json({
+      version: FAMILY_QUESTION_SPEC_VERSION,
+      questions: FAMILY_QUESTION_SPECS,
+    });
+  });
+
   app.post("/api/v1/family-referrals", async (req, res) => {
-    const parseResult = familyReferralCreateSchema.safeParse(req.body);
+    const parseResult = familyReferralSubmissionSchema.safeParse(req.body);
     if (!parseResult.success) {
       return res.status(400).json({
         error: "ValidationError",
@@ -353,11 +375,10 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
 
     let aiExplanation = "";
     if (process.env.GEMINI_API_KEY) {
-      const rulesInput = buildRulesInputFromFamilyIntake(referral.intake);
-      const rulesResult = evaluateTriageRules(rulesInput);
+      const routing = createFamilyRoutingOutputFromSubmission(referral.intake);
       aiExplanation = await TriageAIService.generateClinicianSummary(
-        rulesInput,
-        rulesResult,
+        routing.rulesInput,
+        routing.rulesResult,
       );
     } else {
       aiExplanation = [

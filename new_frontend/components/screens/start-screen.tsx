@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Shield, Heart, Clock, ArrowRight, Lock, Users } from "lucide-react"
 
 export function StartScreen() {
-  const { setCurrentScreen } = useApp()
+  const { setCurrentScreen, setCurrentStep } = useApp()
 
   const features = [
     {
@@ -75,7 +75,10 @@ export function StartScreen() {
         <div className="text-center mb-12 opacity-0 animate-slide-up stagger-4">
           <Button
             size="lg"
-            onClick={() => setCurrentScreen('intake')}
+            onClick={() => {
+              setCurrentStep(0)
+              setCurrentScreen('intake')
+            }}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-6 text-lg font-semibold rounded-xl shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5"
           >
             Begin Assessment

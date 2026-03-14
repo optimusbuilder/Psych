@@ -1,42 +1,16 @@
 "use client"
 
 import { createContext, useContext, useState, ReactNode } from 'react'
+import type { FamilyQuestionResponseInput } from "@/lib/api"
 
 export type Screen = 'start' | 'intake' | 'results' | 'safety'
 
 export type UrgencyLevel = 'routine' | 'priority' | 'urgent' | 'immediate'
 
 export interface IntakeData {
-  // Child Information
   childName: string
-  childAge: string
-  childGender: string
-  
-  // Primary Concerns
-  primaryConcerns: string[]
-  concernDescription: string
-  concernDuration: string
-  
-  // Behavioral Indicators
-  moodChanges: string
-  sleepIssues: string
-  appetiteChanges: string
-  socialWithdrawal: string
-  academicImpact: string
-  
-  // Safety Assessment
-  selfHarmThoughts: string
-  selfHarmBehavior: string
-  suicidalIdeation: string
-  
-  // Family Context
-  familyHistory: string
-  recentLifeChanges: string
-  previousTreatment: string
-  
-  // Preferences
-  preferredApproach: string
-  insuranceType: string
+  responses: FamilyQuestionResponseInput[]
+  startedAt: string
 }
 
 export interface RecommendationResult {
@@ -50,6 +24,7 @@ export interface RecommendationResult {
   aiExplanation?: string | null
   rationale: string[]
   nextSteps: string[]
+  instrumentPack: string[]
 }
 
 interface AppContextType {
@@ -65,24 +40,8 @@ interface AppContextType {
 
 const defaultIntakeData: IntakeData = {
   childName: '',
-  childAge: '',
-  childGender: '',
-  primaryConcerns: [],
-  concernDescription: '',
-  concernDuration: '',
-  moodChanges: '',
-  sleepIssues: '',
-  appetiteChanges: '',
-  socialWithdrawal: '',
-  academicImpact: '',
-  selfHarmThoughts: '',
-  selfHarmBehavior: '',
-  suicidalIdeation: '',
-  familyHistory: '',
-  recentLifeChanges: '',
-  previousTreatment: '',
-  preferredApproach: '',
-  insuranceType: '',
+  responses: [],
+  startedAt: '',
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)

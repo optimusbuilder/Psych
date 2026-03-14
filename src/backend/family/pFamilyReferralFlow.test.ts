@@ -88,6 +88,93 @@ async function invoke(app: Application, options: InvokeOptions) {
 }
 
 describe("P-Family-Referral-Flow", () => {
+  it("returns the runtime family question catalog", async () => {
+    const { app, pool } = createAppWithDatabase();
+    try {
+      const response = await invoke(app, {
+        method: "GET",
+        url: "/api/v1/family-referrals/question-spec",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body.version).toBe("question-spec-v1");
+      expect(Array.isArray(response.body.questions)).toBe(true);
+      const questionIds = (response.body.questions as Array<{ id: string }>).map(
+        (item) => item.id,
+      );
+      expect(questionIds).toContain("1B.1");
+      expect(questionIds).toContain("7.4");
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("accepts question-spec response submissions and returns deterministic routing", async () => {
+    const { app, pool } = createAppWithDatabase();
+    try {
+      const createResponse = await invoke(app, {
+        method: "POST",
+        url: "/api/v1/family-referrals",
+        body: {
+          childName: "Jordan",
+          responses: [
+            {
+              questionId: "2.1",
+              rater: "CG",
+              answer: { kind: "date_or_age", value: "14" },
+            },
+            {
+              questionId: "5A.1",
+              rater: "CG",
+              answer: {
+                kind: "open_text",
+                value: "School anxiety and panic episodes are getting worse.",
+              },
+            },
+            {
+              questionId: "5C.1",
+              rater: "CG",
+              answer: { kind: "yes_no", value: "yes" },
+            },
+            {
+              questionId: "6A.1",
+              rater: "CG",
+              answer: { kind: "mild_mod_severe", value: "moderate" },
+            },
+            {
+              questionId: "6C.1",
+              rater: "CG",
+              answer: { kind: "mild_mod_severe", value: "moderate" },
+            },
+            {
+              questionId: "6D.1",
+              rater: "CG",
+              answer: { kind: "mild_mod_severe", value: "mild" },
+            },
+            {
+              questionId: "7.1",
+              rater: "CG",
+              answer: { kind: "yes_no", value: "yes" },
+            },
+          ],
+          metadata: {
+            source: "web",
+          },
+        },
+      });
+
+      expect(createResponse.statusCode).toBe(201);
+      expect(createResponse.body.intakeMode).toBe("question_spec_v1");
+      expect(createResponse.body.intake.responses.length).toBeGreaterThan(0);
+      expect(createResponse.body.recommendation.instrumentPack.length).toBeGreaterThan(0);
+      expect(createResponse.body.recommendation.urgencyLevel).toMatch(
+        /routine|priority|urgent|immediate/,
+      );
+    } finally {
+      await pool.end();
+    }
+  });
+
   it("creates and returns a deterministic family referral recommendation", async () => {
     const { app, pool } = createAppWithDatabase();
     try {
