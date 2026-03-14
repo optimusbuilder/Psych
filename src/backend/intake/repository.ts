@@ -3,11 +3,20 @@ import type {
   FunctionalImpactInput,
   RespondentInput,
   SafetyInput,
+  ScoreInstrumentInput,
   SymptomInput,
 } from "./contracts";
 import { buildId, computeOverallSeverity } from "./utils";
 import { evaluateSafety } from "../safety/service";
 import { evaluateTriageRules, rulesInputFromAggregate } from "../rules/engine";
+import {
+  buildDecisionUpdateFromInstrument,
+  INSTRUMENT_ENGINE_VERSION,
+  interpretInstrumentScore,
+  recommendInstruments,
+  type InstrumentAssignedTo,
+  type InstrumentName,
+} from "../instruments/service";
 
 type QueryResultRow = Record<string, unknown>;
 
@@ -117,6 +126,35 @@ export interface AuditLogRow {
   actorUserId: string | null;
   timestamp: string;
   metadataJson: unknown;
+}
+
+export interface InstrumentAssignmentRow {
+  id: string;
+  intakeSessionId: string;
+  instrumentName: string;
+  assignedTo: InstrumentAssignedTo;
+  status: string;
+  dueAt: string | null;
+  createdAt: string;
+}
+
+export interface InstrumentScoreResultRow {
+  assignmentId: string;
+  intakeSessionId: string;
+  instrumentName: string;
+  assignedTo: InstrumentAssignedTo;
+  status: string;
+  rawScore: number;
+  interpretation: string;
+  cutoffTriggered: boolean;
+  structuredJson: unknown;
+  decisionUpdated: boolean;
+  decisionUpdate: {
+    recommendation: string;
+    requiresClinicianReview: boolean;
+    urgencyLevel: string;
+    engineVersion: string;
+  } | null;
 }
 
 export class IntakeRepository {
@@ -680,6 +718,413 @@ export class IntakeRepository {
           pathwayKey: decision.pathwayKey,
           reasonCodes: decision.reasonCodes,
         },
+      };
+    } catch (error) {
+      await this.db.query("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async routeInstruments(sessionId: string) {
+    const aggregate = await this.getSessionAggregate(sessionId);
+    if (!aggregate) {
+      return null;
+    }
+
+    const missing: string[] = [];
+    if (!aggregate.safetyAssessment) {
+      missing.push("safetyAssessment");
+    }
+
+    const safetyPositive = aggregate.safetyAssessment?.requiresImmediateReview === true;
+    if (!aggregate.respondent) {
+      missing.push("respondent");
+    }
+    if (!safetyPositive) {
+      if (!aggregate.symptomAssessment) {
+        missing.push("symptomAssessment");
+      }
+      if (!aggregate.functionalImpact) {
+        missing.push("functionalImpact");
+      }
+    }
+    if (missing.length > 0) {
+      return {
+        routed: false as const,
+        missing,
+      };
+    }
+
+    const decision = evaluateTriageRules(rulesInputFromAggregate(aggregate));
+    const recommendations = recommendInstruments({
+      ageBand: decision.ageBand,
+      symptomFamily: decision.normalizedSymptomFamily,
+      severityTier: decision.severityTier,
+    });
+
+    await this.db.query("BEGIN");
+    try {
+      const existing = await this.db.query<{
+        instrument_name: string;
+        assigned_to: InstrumentAssignedTo;
+      }>(
+        `
+          SELECT instrument_name, assigned_to
+          FROM instrument_assignments
+          WHERE intake_session_id = $1
+        `,
+        [sessionId],
+      );
+      const existingSet = new Set(
+        existing.rows.map((row) => `${row.instrument_name}::${row.assigned_to}`),
+      );
+
+      let insertedCount = 0;
+      for (const recommendation of recommendations) {
+        const key = `${recommendation.instrumentName}::${recommendation.assignedTo}`;
+        if (existingSet.has(key)) {
+          continue;
+        }
+        await this.db.query(
+          `
+            INSERT INTO instrument_assignments (
+              id,
+              intake_session_id,
+              instrument_name,
+              assigned_to,
+              status,
+              due_at
+            ) VALUES ($1,$2,$3,$4,$5,NOW() + INTERVAL '72 hours')
+          `,
+          [
+            buildId("assign"),
+            sessionId,
+            recommendation.instrumentName,
+            recommendation.assignedTo,
+            "assigned",
+          ],
+        );
+        existingSet.add(key);
+        insertedCount += 1;
+      }
+
+      await this.db.query("COMMIT");
+
+      const assignments = await this.listInstrumentAssignments(sessionId);
+      return {
+        routed: true as const,
+        recommendedCount: recommendations.length,
+        insertedCount,
+        assignments,
+        engineVersion: decision.engineVersion,
+        instrumentEngineVersion: INSTRUMENT_ENGINE_VERSION,
+      };
+    } catch (error) {
+      await this.db.query("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async listInstrumentAssignments(sessionId: string): Promise<InstrumentAssignmentRow[]> {
+    const result = await this.db.query<{
+      id: string;
+      intake_session_id: string;
+      instrument_name: string;
+      assigned_to: InstrumentAssignedTo;
+      status: string;
+      due_at: string | null;
+      created_at: string;
+    }>(
+      `
+        SELECT
+          id,
+          intake_session_id,
+          instrument_name,
+          assigned_to,
+          status,
+          due_at,
+          created_at
+        FROM instrument_assignments
+        WHERE intake_session_id = $1
+        ORDER BY created_at ASC
+      `,
+      [sessionId],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      intakeSessionId: row.intake_session_id,
+      instrumentName: row.instrument_name,
+      assignedTo: row.assigned_to,
+      status: row.status,
+      dueAt: row.due_at,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async completeInstrumentAssignment(assignmentId: string) {
+    const current = await this.db.query<{
+      id: string;
+      intake_session_id: string;
+      instrument_name: string;
+      assigned_to: InstrumentAssignedTo;
+      status: string;
+      due_at: string | null;
+      created_at: string;
+    }>(
+      `
+        SELECT
+          id,
+          intake_session_id,
+          instrument_name,
+          assigned_to,
+          status,
+          due_at,
+          created_at
+        FROM instrument_assignments
+        WHERE id = $1
+      `,
+      [assignmentId],
+    );
+    if (current.rows.length === 0) {
+      return null;
+    }
+
+    const assignment = current.rows[0];
+    if (assignment.status === "scored" || assignment.status === "cancelled") {
+      return {
+        completed: false as const,
+        reason: "InvalidTransition",
+        currentStatus: assignment.status,
+      };
+    }
+
+    if (assignment.status === "completed") {
+      return {
+        completed: true as const,
+        assignment: {
+          id: assignment.id,
+          intakeSessionId: assignment.intake_session_id,
+          instrumentName: assignment.instrument_name,
+          assignedTo: assignment.assigned_to,
+          status: assignment.status,
+          dueAt: assignment.due_at,
+          createdAt: assignment.created_at,
+        },
+      };
+    }
+
+    const updated = await this.db.query<{
+      id: string;
+      intake_session_id: string;
+      instrument_name: string;
+      assigned_to: InstrumentAssignedTo;
+      status: string;
+      due_at: string | null;
+      created_at: string;
+    }>(
+      `
+        UPDATE instrument_assignments
+        SET status = 'completed'
+        WHERE id = $1
+        RETURNING
+          id,
+          intake_session_id,
+          instrument_name,
+          assigned_to,
+          status,
+          due_at,
+          created_at
+      `,
+      [assignmentId],
+    );
+
+    return {
+      completed: true as const,
+      assignment: {
+        id: updated.rows[0].id,
+        intakeSessionId: updated.rows[0].intake_session_id,
+        instrumentName: updated.rows[0].instrument_name,
+        assignedTo: updated.rows[0].assigned_to,
+        status: updated.rows[0].status,
+        dueAt: updated.rows[0].due_at,
+        createdAt: updated.rows[0].created_at,
+      },
+    };
+  }
+
+  async scoreInstrumentAssignment(assignmentId: string, input: ScoreInstrumentInput) {
+    const assignmentResult = await this.db.query<{
+      id: string;
+      intake_session_id: string;
+      instrument_name: string;
+      assigned_to: InstrumentAssignedTo;
+      status: string;
+    }>(
+      `
+        SELECT
+          id,
+          intake_session_id,
+          instrument_name,
+          assigned_to,
+          status
+        FROM instrument_assignments
+        WHERE id = $1
+      `,
+      [assignmentId],
+    );
+    if (assignmentResult.rows.length === 0) {
+      return null;
+    }
+    const assignment = assignmentResult.rows[0];
+
+    if (assignment.status !== "completed") {
+      return {
+        scored: false as const,
+        reason: "AssignmentMustBeCompleted",
+        currentStatus: assignment.status,
+      };
+    }
+
+    const interpretation = interpretInstrumentScore(
+      assignment.instrument_name as InstrumentName,
+      input.rawScore,
+    );
+
+    await this.db.query("BEGIN");
+    try {
+      const resultId = buildId("result");
+      const result = await this.db.query<{
+        raw_score: number;
+        interpretation: string;
+        cutoff_triggered: boolean;
+        structured_json: unknown;
+      }>(
+        `
+          INSERT INTO instrument_results (
+            id,
+            assignment_id,
+            raw_score,
+            interpretation,
+            cutoff_triggered,
+            structured_json
+          ) VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+          ON CONFLICT (assignment_id)
+          DO UPDATE SET
+            raw_score = EXCLUDED.raw_score,
+            interpretation = EXCLUDED.interpretation,
+            cutoff_triggered = EXCLUDED.cutoff_triggered,
+            structured_json = EXCLUDED.structured_json
+          RETURNING
+            raw_score,
+            interpretation,
+            cutoff_triggered,
+            structured_json
+        `,
+        [
+          resultId,
+          assignmentId,
+          input.rawScore,
+          interpretation.interpretation,
+          interpretation.cutoffTriggered,
+          JSON.stringify({
+            ...(input.structuredJson ?? {}),
+            severityBand: interpretation.severityBand,
+          }),
+        ],
+      );
+
+      await this.db.query(
+        `
+          UPDATE instrument_assignments
+          SET status = 'scored'
+          WHERE id = $1
+        `,
+        [assignmentId],
+      );
+
+      let decisionUpdated = false;
+      let decisionUpdate: InstrumentScoreResultRow["decisionUpdate"] = null;
+      if (interpretation.cutoffTriggered) {
+        const latestDecision = await this.db.query<{
+          urgency_level: string;
+        }>(
+          `
+            SELECT urgency_level
+            FROM triage_decisions
+            WHERE intake_session_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+          `,
+          [assignment.intake_session_id],
+        );
+        const currentUrgency =
+          (latestDecision.rows[0]?.urgency_level as "routine" | "priority" | "urgent" | "immediate") ??
+          "routine";
+
+        const update = buildDecisionUpdateFromInstrument(interpretation, currentUrgency);
+        if (update) {
+          decisionUpdated = true;
+          decisionUpdate = {
+            recommendation: update.recommendation,
+            requiresClinicianReview: update.requiresClinicianReview,
+            urgencyLevel: update.urgencyLevel,
+            engineVersion: update.engineVersion,
+          };
+
+          await this.db.query(
+            `
+              INSERT INTO triage_decisions (
+                id,
+                intake_session_id,
+                recommendation,
+                requires_clinician_review,
+                urgency_level,
+                engine_version
+              ) VALUES ($1,$2,$3,$4,$5,$6)
+            `,
+            [
+              buildId("decision"),
+              assignment.intake_session_id,
+              update.recommendation,
+              update.requiresClinicianReview,
+              update.urgencyLevel,
+              update.engineVersion,
+            ],
+          );
+
+          await this.db.query(
+            `
+              UPDATE intake_sessions
+              SET status = CASE
+                WHEN status = 'flagged_urgent' THEN status
+                WHEN $2::boolean = TRUE THEN 'awaiting_review'
+                ELSE status
+              END
+              WHERE id = $1
+            `,
+            [assignment.intake_session_id, update.requiresClinicianReview],
+          );
+        }
+      }
+
+      await this.db.query("COMMIT");
+
+      return {
+        scored: true as const,
+        result: {
+          assignmentId,
+          intakeSessionId: assignment.intake_session_id,
+          instrumentName: assignment.instrument_name,
+          assignedTo: assignment.assigned_to,
+          status: "scored",
+          rawScore: Number(result.rows[0].raw_score),
+          interpretation: result.rows[0].interpretation,
+          cutoffTriggered: result.rows[0].cutoff_triggered,
+          structuredJson: result.rows[0].structured_json,
+          decisionUpdated,
+          decisionUpdate,
+        } satisfies InstrumentScoreResultRow,
       };
     } catch (error) {
       await this.db.query("ROLLBACK");

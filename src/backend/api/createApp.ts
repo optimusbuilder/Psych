@@ -4,6 +4,7 @@ import {
   functionalImpactSchema,
   respondentSchema,
   safetySchema,
+  scoreInstrumentSchema,
   symptomSchema,
 } from "../intake/contracts";
 import { IntakeRepository, type SqlClient } from "../intake/repository";
@@ -18,6 +19,13 @@ const intakeReadRoles = [
   "admin",
 ] as const;
 const providerRoles = ["intake_coordinator", "clinician", "admin"] as const;
+const instrumentOpsRoles = [
+  "patient",
+  "caregiver",
+  "intake_coordinator",
+  "clinician",
+  "admin",
+] as const;
 
 export function createBackendApp(db: SqlClient) {
   const app = express();
@@ -178,6 +186,95 @@ export function createBackendApp(db: SqlClient) {
 
       const saved = await repository.saveFunctionalImpact(req.params.id, parseResult.data);
       return res.status(200).json(saved);
+    },
+  );
+
+  app.get(
+    "/api/v1/intake-sessions/:id/instrument-assignments",
+    requireRoles([...intakeReadRoles]),
+    async (req, res) => {
+      const sessionExists = await repository.ensureSessionExists(req.params.id);
+      if (!sessionExists) {
+        return res.status(404).json({ error: "SessionNotFound" });
+      }
+
+      const assignments = await repository.listInstrumentAssignments(req.params.id);
+      return res.status(200).json({
+        sessionId: req.params.id,
+        count: assignments.length,
+        assignments,
+      });
+    },
+  );
+
+  app.post(
+    "/api/v1/intake-sessions/:id/instruments/route",
+    requireRoles([...instrumentOpsRoles]),
+    async (req, res) => {
+      const sessionExists = await repository.ensureSessionExists(req.params.id);
+      if (!sessionExists) {
+        return res.status(404).json({ error: "SessionNotFound" });
+      }
+
+      const routed = await repository.routeInstruments(req.params.id);
+      if (!routed) {
+        return res.status(404).json({ error: "SessionNotFound" });
+      }
+      if (!routed.routed) {
+        return res.status(409).json({
+          error: "IncompleteSessionForInstrumentRouting",
+          missing: routed.missing,
+        });
+      }
+
+      return res.status(200).json(routed);
+    },
+  );
+
+  app.post(
+    "/api/v1/instrument-assignments/:assignmentId/complete",
+    requireRoles([...instrumentOpsRoles]),
+    async (req, res) => {
+      const completed = await repository.completeInstrumentAssignment(req.params.assignmentId);
+      if (!completed) {
+        return res.status(404).json({ error: "InstrumentAssignmentNotFound" });
+      }
+      if (!completed.completed) {
+        return res.status(409).json({
+          error: completed.reason,
+          currentStatus: completed.currentStatus,
+        });
+      }
+      return res.status(200).json(completed);
+    },
+  );
+
+  app.post(
+    "/api/v1/instrument-assignments/:assignmentId/score",
+    requireRoles([...instrumentOpsRoles]),
+    async (req, res) => {
+      const parseResult = scoreInstrumentSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "ValidationError",
+          issues: parseResult.error.issues,
+        });
+      }
+
+      const scored = await repository.scoreInstrumentAssignment(
+        req.params.assignmentId,
+        parseResult.data,
+      );
+      if (!scored) {
+        return res.status(404).json({ error: "InstrumentAssignmentNotFound" });
+      }
+      if (!scored.scored) {
+        return res.status(409).json({
+          error: scored.reason,
+          currentStatus: scored.currentStatus,
+        });
+      }
+      return res.status(200).json(scored.result);
     },
   );
 

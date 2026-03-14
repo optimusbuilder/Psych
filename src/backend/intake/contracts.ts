@@ -42,8 +42,14 @@ export const functionalImpactSchema = z.object({
   safetyLegalScore: z.number().int().min(0).max(10),
 });
 
+export const scoreInstrumentSchema = z.object({
+  rawScore: z.number().min(0),
+  structuredJson: z.record(z.any()).optional(),
+});
+
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export type RespondentInput = z.infer<typeof respondentSchema>;
 export type SafetyInput = z.infer<typeof safetySchema>;
 export type SymptomInput = z.infer<typeof symptomSchema>;
 export type FunctionalImpactInput = z.infer<typeof functionalImpactSchema>;
+export type ScoreInstrumentInput = z.infer<typeof scoreInstrumentSchema>;
