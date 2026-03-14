@@ -7,6 +7,7 @@ import type {
 } from "./contracts";
 import { buildId, computeOverallSeverity } from "./utils";
 import { evaluateSafety } from "../safety/service";
+import { evaluateTriageRules, rulesInputFromAggregate } from "../rules/engine";
 
 type QueryResultRow = Record<string, unknown>;
 
@@ -606,31 +607,84 @@ export class IntakeRepository {
       };
     }
 
+    const decision = evaluateTriageRules(rulesInputFromAggregate(aggregate));
+
     let nextStatus = "awaiting_instruments";
-    if (safetyPositive) {
+    if (decision.pathwayKey === "immediate_urgent_review" || decision.urgencyLevel === "immediate") {
       nextStatus = "flagged_urgent";
-    } else if (
-      aggregate.symptomAssessment?.isMixedUnclear ||
-      aggregate.functionalImpact?.overallSeverity === "severe"
-    ) {
+    } else if (decision.requiresClinicianReview) {
       nextStatus = "awaiting_review";
     }
 
-    const result = await this.db.query<{ status: string; submitted_at: string }>(
-      `
-        UPDATE intake_sessions
-        SET status = $2, submitted_at = NOW()
-        WHERE id = $1
-        RETURNING status, submitted_at
-      `,
-      [sessionId, nextStatus],
-    );
+    await this.db.query("BEGIN");
+    try {
+      const decisionId = buildId("decision");
+      const decisionInsert = await this.db.query<{
+        id: string;
+        recommendation: string;
+        requires_clinician_review: boolean;
+        urgency_level: string;
+        engine_version: string;
+        created_at: string;
+      }>(
+        `
+          INSERT INTO triage_decisions (
+            id,
+            intake_session_id,
+            recommendation,
+            requires_clinician_review,
+            urgency_level,
+            engine_version
+          ) VALUES ($1,$2,$3,$4,$5,$6)
+          RETURNING
+            id,
+            recommendation,
+            requires_clinician_review,
+            urgency_level,
+            engine_version,
+            created_at
+        `,
+        [
+          decisionId,
+          sessionId,
+          decision.recommendation,
+          decision.requiresClinicianReview,
+          decision.urgencyLevel,
+          decision.engineVersion,
+        ],
+      );
 
-    return {
-      submitted: true as const,
-      status: result.rows[0].status,
-      submittedAt: result.rows[0].submitted_at,
-    };
+      const statusResult = await this.db.query<{ status: string; submitted_at: string }>(
+        `
+          UPDATE intake_sessions
+          SET status = $2, submitted_at = NOW()
+          WHERE id = $1
+          RETURNING status, submitted_at
+        `,
+        [sessionId, nextStatus],
+      );
+
+      await this.db.query("COMMIT");
+
+      return {
+        submitted: true as const,
+        status: statusResult.rows[0].status,
+        submittedAt: statusResult.rows[0].submitted_at,
+        decision: {
+          id: decisionInsert.rows[0].id,
+          recommendation: decisionInsert.rows[0].recommendation,
+          requiresClinicianReview: decisionInsert.rows[0].requires_clinician_review,
+          urgencyLevel: decisionInsert.rows[0].urgency_level,
+          engineVersion: decisionInsert.rows[0].engine_version,
+          createdAt: decisionInsert.rows[0].created_at,
+          pathwayKey: decision.pathwayKey,
+          reasonCodes: decision.reasonCodes,
+        },
+      };
+    } catch (error) {
+      await this.db.query("ROLLBACK");
+      throw error;
+    }
   }
 
   async listUrgentCases(limit = 25): Promise<UrgentCaseRow[]> {

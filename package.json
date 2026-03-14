@@ -14,6 +14,7 @@
     "test:phase2": "vitest run src/backend/persistence/p2MigrationIntegrity.test.ts",
     "test:phase3": "vitest run src/backend/intake/p3IntakeSessionE2E.test.ts",
     "test:phase4": "vitest run src/backend/safety/p4SafetyOverrideRule.test.ts",
+    "test:phase5": "vitest run src/backend/rules/p5RulesFixtureMatrix.test.ts",
     "api:start": "tsx src/backend/api/server.ts",
     "db:up": "bash scripts/db/up.sh",
     "db:down": "bash scripts/db/down.sh",
