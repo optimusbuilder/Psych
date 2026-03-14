@@ -36,6 +36,7 @@ npm run api:start
 Frontend Phase 8 integration uses live `/api/v1/*` endpoints. In local development:
 - run backend on `http://localhost:4000`
 - run frontend on `http://localhost:8080` (Vite proxy forwards `/api` to backend)
+- set `VITE_PROVIDER_USER_ID` to a valid provider user id for dashboard API calls (default: `user-clin-001`)
 
 ## Delivery Plan by Phase
 
@@ -207,6 +208,9 @@ Success test:
 1. Unauthorized actions are denied with correct status codes
 2. Sensitive actions are always auditable
 3. Production deployment passes smoke tests with no critical errors
+
+Verification command:
+- `npm run test:phase9`
 
 ## Definition of MVP Complete
 MVP is complete when Phases 1 through 8 pass all success tests, with Phase 9 minimum gate items:

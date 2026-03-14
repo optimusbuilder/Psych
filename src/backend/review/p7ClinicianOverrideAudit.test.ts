@@ -182,6 +182,7 @@ describe("P7-Clinician-Override-Audit", () => {
         method: "GET",
         url: "/api/v1/provider/review-queue?status=awaiting_review",
         role: "clinician",
+        userId: "user-clin-001",
       });
       expect(reviewQueue.statusCode).toBe(200);
       expect(reviewQueue.body.count).toBe(1);
@@ -227,6 +228,7 @@ describe("P7-Clinician-Override-Audit", () => {
         method: "GET",
         url: `/api/v1/provider/cases/${sessionId}`,
         role: "clinician",
+        userId: "user-clin-001",
       });
       expect(caseDetail.statusCode).toBe(200);
       expect(caseDetail.body.session.status).toBe("completed");
@@ -249,6 +251,7 @@ describe("P7-Clinician-Override-Audit", () => {
         method: "GET",
         url: `/api/v1/intake-sessions/${sessionId}/audit`,
         role: "clinician",
+        userId: "user-clin-001",
       });
       expect(auditEndpoint.statusCode).toBe(200);
       expect(auditEndpoint.body.count).toBeGreaterThanOrEqual(3);

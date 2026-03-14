@@ -6,6 +6,7 @@ export type AppRole =
   | "admin";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+const PROVIDER_USER_ID = (import.meta.env.VITE_PROVIDER_USER_ID as string | undefined)?.trim() || "user-clin-001";
 
 export class ApiError extends Error {
   status: number;
@@ -253,7 +254,7 @@ export async function fetchReviewQueue(status: "all" | "awaiting_review" | "flag
     status: string;
     count: number;
     cases: ReviewQueueCase[];
-  }>(`/api/v1/provider/review-queue?status=${status}`, {}, "clinician");
+  }>(`/api/v1/provider/review-queue?status=${status}`, {}, "clinician", PROVIDER_USER_ID);
 }
 
 export async function fetchUrgentCases() {
@@ -266,11 +267,16 @@ export async function fetchUrgentCases() {
       escalationLevel: string;
       createdAt: string;
     }>;
-  }>("/api/v1/provider/urgent-cases", {}, "clinician");
+  }>("/api/v1/provider/urgent-cases", {}, "clinician", PROVIDER_USER_ID);
 }
 
 export async function fetchProviderCaseDetail(caseId: string) {
-  return request<ProviderCaseDetailResponse>(`/api/v1/provider/cases/${caseId}`, {}, "clinician");
+  return request<ProviderCaseDetailResponse>(
+    `/api/v1/provider/cases/${caseId}`,
+    {},
+    "clinician",
+    PROVIDER_USER_ID,
+  );
 }
 
 export async function submitCaseOverride(caseId: string, input: { finalDisposition: string; rationale: string }) {
@@ -295,6 +301,6 @@ export async function submitCaseOverride(caseId: string, input: { finalDispositi
       }),
     },
     "clinician",
-    "user-clin-001",
+    PROVIDER_USER_ID,
   );
 }

@@ -9,7 +9,7 @@ import {
   symptomSchema,
 } from "../intake/contracts";
 import { IntakeRepository, type SqlClient } from "../intake/repository";
-import { getActorUserId, requireRoles } from "./auth";
+import { getActorUserId, getRoleFromRequest, requireRoles } from "./auth";
 
 const intakeWriteRoles = ["patient", "caregiver", "intake_coordinator", "admin"] as const;
 const intakeReadRoles = [
@@ -28,9 +28,69 @@ const instrumentOpsRoles = [
   "admin",
 ] as const;
 
-export function createBackendApp(db: SqlClient) {
+interface BackendAppOptions {
+  rateLimit?: {
+    windowMs?: number;
+    maxRequests?: number;
+  };
+}
+
+interface RateLimitState {
+  count: number;
+  resetAt: number;
+}
+
+interface ProviderActorContext {
+  userId: string;
+  role: "intake_coordinator" | "clinician" | "admin";
+  organizationId: string | null;
+  isAdmin: boolean;
+}
+
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  const buckets = new Map<string, RateLimitState>();
+
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!req.path.startsWith("/api/v1/")) {
+      return next();
+    }
+
+    const now = Date.now();
+    const roleKey = req.header("x-role")?.trim().toLowerCase() ?? "anonymous";
+    const userKey = req.header("x-user-id")?.trim();
+    const identityKey = userKey && userKey.length > 0 ? userKey : req.ip;
+    const bucketKey = `${roleKey}:${identityKey}`;
+
+    const current = buckets.get(bucketKey);
+    if (!current || current.resetAt <= now) {
+      buckets.set(bucketKey, {
+        count: 1,
+        resetAt: now + windowMs,
+      });
+      return next();
+    }
+
+    if (current.count >= maxRequests) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+      res.setHeader("retry-after", retryAfterSeconds.toString());
+      return res.status(429).json({
+        error: "RateLimitExceeded",
+        message: "Too many requests. Please retry shortly.",
+        retryAfterSeconds,
+      });
+    }
+
+    current.count += 1;
+    buckets.set(bucketKey, current);
+    return next();
+  };
+}
+
+export function createBackendApp(db: SqlClient, options: BackendAppOptions = {}) {
   const app = express();
   const repository = new IntakeRepository(db);
+  const rateLimitWindowMs = options.rateLimit?.windowMs ?? 60_000;
+  const rateLimitMaxRequests = options.rateLimit?.maxRequests ?? 300;
 
   const jsonParser = express.json();
   app.use((req, res, next) => {
@@ -39,6 +99,115 @@ export function createBackendApp(db: SqlClient) {
     }
     return jsonParser(req, res, next);
   });
+  app.use(createRateLimiter(rateLimitWindowMs, rateLimitMaxRequests));
+
+  function rejectRequest(
+    res: express.Response,
+    status: number,
+    payload: Record<string, unknown>,
+  ): null {
+    res.status(status).json(payload);
+    return null;
+  }
+
+  async function resolveProviderActorContext(
+    req: express.Request,
+    res: express.Response,
+  ): Promise<ProviderActorContext | null> {
+    const role = getRoleFromRequest(req);
+    if (!role || (role !== "intake_coordinator" && role !== "clinician" && role !== "admin")) {
+      return rejectRequest(res, 401, {
+        error: "Unauthorized",
+        message: "Provider endpoint requires a valid provider role.",
+      });
+    }
+
+    const actorUserId = getActorUserId(req);
+    if (!actorUserId) {
+      return rejectRequest(res, 401, {
+        error: "ProviderIdentityRequired",
+        message: "Provider endpoint requires x-user-id.",
+      });
+    }
+
+    const profile = await repository.getUserAccessProfile(actorUserId);
+    if (!profile) {
+      return rejectRequest(res, 401, {
+        error: "UnknownUser",
+        message: "x-user-id does not match a known user.",
+      });
+    }
+
+    if (profile.role !== role) {
+      return rejectRequest(res, 403, {
+        error: "Forbidden",
+        message: "x-role does not match the authenticated user's role.",
+      });
+    }
+
+    if (role !== "admin" && !profile.organizationId) {
+      return rejectRequest(res, 403, {
+        error: "OrganizationContextRequired",
+        message: "Provider user must belong to an organization.",
+      });
+    }
+
+    return {
+      userId: profile.id,
+      role,
+      organizationId: profile.organizationId,
+      isAdmin: role === "admin",
+    };
+  }
+
+  const requireProviderActor: express.RequestHandler = async (req, res, next) => {
+    try {
+      const actor = await resolveProviderActorContext(req, res);
+      if (!actor) {
+        return;
+      }
+      res.locals.providerActor = actor;
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+  const requireSessionOrganizationAccess: express.RequestHandler = async (req, res, next) => {
+    try {
+      const actor = res.locals.providerActor as ProviderActorContext | undefined;
+      if (!actor) {
+        return res.status(500).json({
+          error: "InternalServerError",
+          message: "Provider actor context was not initialized.",
+        });
+      }
+      if (actor.isAdmin) {
+        return next();
+      }
+      if (!actor.organizationId) {
+        return res.status(403).json({
+          error: "OrganizationContextRequired",
+          message: "Provider user must belong to an organization.",
+        });
+      }
+
+      const canAccess = await repository.canOrganizationAccessSession(req.params.id, actor.organizationId);
+      if (canAccess === null) {
+        return res.status(404).json({ error: "SessionNotFound" });
+      }
+      if (!canAccess) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Session belongs to a different organization.",
+        });
+      }
+
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  };
 
   app.get("/api/v1/health", (_req, res) => {
     res.status(200).json({ ok: true });
@@ -294,12 +463,9 @@ export function createBackendApp(db: SqlClient) {
   app.get(
     "/api/v1/intake-sessions/:id/audit",
     requireRoles([...providerRoles]),
+    requireProviderActor,
+    requireSessionOrganizationAccess,
     async (req, res) => {
-      const sessionExists = await repository.ensureSessionExists(req.params.id);
-      if (!sessionExists) {
-        return res.status(404).json({ error: "SessionNotFound" });
-      }
-
       const logs = await repository.listAuditLogsForSession(req.params.id);
       return res.status(200).json({
         sessionId: req.params.id,
@@ -335,6 +501,7 @@ export function createBackendApp(db: SqlClient) {
   app.get(
     "/api/v1/provider/urgent-cases",
     requireRoles([...providerRoles]),
+    requireProviderActor,
     async (req, res) => {
       const limitParam = req.query.limit;
       const parsedLimit =
@@ -344,7 +511,11 @@ export function createBackendApp(db: SqlClient) {
           ? parsedLimit
           : 25;
 
-      const cases = await repository.listUrgentCases(limit);
+      const actor = res.locals.providerActor as ProviderActorContext;
+      const cases = await repository.listUrgentCases(
+        limit,
+        actor.isAdmin ? null : actor.organizationId,
+      );
       return res.status(200).json({
         count: cases.length,
         cases,
@@ -355,6 +526,7 @@ export function createBackendApp(db: SqlClient) {
   app.get(
     "/api/v1/provider/review-queue",
     requireRoles([...providerRoles]),
+    requireProviderActor,
     async (req, res) => {
       const limitParam = req.query.limit;
       const parsedLimit =
@@ -370,7 +542,12 @@ export function createBackendApp(db: SqlClient) {
           ? statusParam
           : "all";
 
-      const cases = await repository.listReviewQueue(status, limit);
+      const actor = res.locals.providerActor as ProviderActorContext;
+      const cases = await repository.listReviewQueue(
+        status,
+        limit,
+        actor.isAdmin ? null : actor.organizationId,
+      );
       return res.status(200).json({
         status,
         count: cases.length,
@@ -382,6 +559,8 @@ export function createBackendApp(db: SqlClient) {
   app.get(
     "/api/v1/provider/cases/:id",
     requireRoles([...providerRoles]),
+    requireProviderActor,
+    requireSessionOrganizationAccess,
     async (req, res) => {
       const detail = await repository.getProviderCaseDetail(req.params.id);
       if (!detail) {
@@ -394,6 +573,8 @@ export function createBackendApp(db: SqlClient) {
   app.post(
     "/api/v1/provider/cases/:id/override",
     requireRoles([...providerRoles]),
+    requireProviderActor,
+    requireSessionOrganizationAccess,
     async (req, res) => {
       const parseResult = clinicianOverrideSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -413,6 +594,26 @@ export function createBackendApp(db: SqlClient) {
       }
 
       return res.status(200).json(reviewResult);
+    },
+  );
+
+  app.use(
+    (
+      error: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      if (res.headersSent) {
+        return;
+      }
+
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      return res.status(500).json({
+        error: "InternalServerError",
+        message: "Unexpected server error.",
+        detail,
+      });
     },
   );
 

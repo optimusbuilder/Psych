@@ -81,6 +81,15 @@ describe("P4-Safety-Override-Rule", () => {
   it("flags urgent safety cases, suspends normal routing, and records audit trail", async () => {
     const { app, pool } = createAppWithDatabase();
     try {
+      await pool.query(`
+        INSERT INTO organizations (id, name, type)
+        VALUES ('org-001', 'Cura Hospital', 'hospital');
+      `);
+      await pool.query(`
+        INSERT INTO users (id, name, email, role, organization_id)
+        VALUES ('user-clin-001', 'Dr. Sarah Chen', 'sarah.chen@cura.org', 'clinician', 'org-001');
+      `);
+
       const createResponse = await invoke(app, {
         method: "POST",
         url: "/api/v1/intake-sessions",
@@ -134,6 +143,7 @@ describe("P4-Safety-Override-Rule", () => {
         method: "GET",
         url: "/api/v1/provider/urgent-cases",
         role: "clinician",
+        userId: "user-clin-001",
       });
       expect(urgentQueue.statusCode).toBe(200);
       expect(urgentQueue.body.count).toBe(1);
@@ -144,6 +154,7 @@ describe("P4-Safety-Override-Rule", () => {
         method: "GET",
         url: `/api/v1/intake-sessions/${sessionId}/audit`,
         role: "clinician",
+        userId: "user-clin-001",
       });
       expect(auditLogs.statusCode).toBe(200);
       expect(auditLogs.body.count).toBeGreaterThan(0);

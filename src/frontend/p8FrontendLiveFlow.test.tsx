@@ -147,10 +147,19 @@ describe("P8-Frontend-Live-Flow", () => {
   let app: Application;
   let pool: { end: () => Promise<void> };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const instance = createAppWithDatabase();
     app = instance.app;
     pool = instance.pool;
+
+    await pool.query(`
+      INSERT INTO organizations (id, name, type)
+      VALUES ('org-001', 'Cura Hospital', 'hospital');
+    `);
+    await pool.query(`
+      INSERT INTO users (id, name, email, role, organization_id)
+      VALUES ('user-clin-001', 'Dr. Sarah Chen', 'sarah.chen@cura.org', 'clinician', 'org-001');
+    `);
 
     vi.stubGlobal(
       "fetch",
@@ -230,6 +239,7 @@ describe("P8-Frontend-Live-Flow", () => {
       method: "GET",
       url: "/api/v1/provider/review-queue?status=all",
       role: "clinician",
+      userId: "user-clin-001",
     });
     expect(reviewQueue.statusCode).toBe(200);
     expect(reviewQueue.body.count).toBeGreaterThanOrEqual(1);

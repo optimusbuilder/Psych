@@ -210,8 +210,65 @@ export interface ProviderCaseDetail {
   auditTrail: AuditLogRow[];
 }
 
+export interface UserAccessProfile {
+  id: string;
+  role: string;
+  organizationId: string | null;
+}
+
 export class IntakeRepository {
   constructor(private readonly db: SqlClient) {}
+
+  async getUserAccessProfile(userId: string): Promise<UserAccessProfile | null> {
+    const result = await this.db.query<{
+      id: string;
+      role: string;
+      organization_id: string | null;
+    }>(
+      `
+        SELECT id, role, organization_id
+        FROM users
+        WHERE id = $1
+      `,
+      [userId],
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return {
+      id: result.rows[0].id,
+      role: result.rows[0].role,
+      organizationId: result.rows[0].organization_id,
+    };
+  }
+
+  async getSessionLinkedOrganizationId(sessionId: string): Promise<string | null | undefined> {
+    const result = await this.db.query<{ linked_org_id: string | null }>(
+      `
+        SELECT p.linked_org_id
+        FROM intake_sessions s
+        JOIN patients p
+          ON p.id = s.patient_id
+        WHERE s.id = $1
+      `,
+      [sessionId],
+    );
+
+    if (result.rows.length === 0) {
+      return undefined;
+    }
+
+    return result.rows[0].linked_org_id;
+  }
+
+  async canOrganizationAccessSession(sessionId: string, organizationId: string): Promise<boolean | null> {
+    const linkedOrgId = await this.getSessionLinkedOrganizationId(sessionId);
+    if (typeof linkedOrgId === "undefined") {
+      return null;
+    }
+    return linkedOrgId === null || linkedOrgId === organizationId;
+  }
 
   async createSession(input: CreateSessionInput) {
     const patientId = buildId("patient");
@@ -1224,81 +1281,57 @@ export class IntakeRepository {
   async listReviewQueue(
     status: ReviewQueueStatus = "all",
     limit = 25,
+    organizationId?: string | null,
   ): Promise<ReviewQueueCaseRow[]> {
-    let result: {
-      rows: Array<{
-        session_id: string;
-        patient_id: string;
-        first_name: string;
-        last_name: string;
-        route_type: string;
-        status: string;
-        submitted_at: string | null;
-        created_at: string;
-      }>;
-    };
+    const params: unknown[] = [];
+    const whereParts: string[] = [];
 
     if (status === "all") {
-      result = await this.db.query<{
-        session_id: string;
-        patient_id: string;
-        first_name: string;
-        last_name: string;
-        route_type: string;
-        status: string;
-        submitted_at: string | null;
-        created_at: string;
-      }>(
-        `
-          SELECT
-            s.id AS session_id,
-            s.patient_id,
-            p.first_name,
-            p.last_name,
-            s.route_type,
-            s.status,
-            s.submitted_at,
-            s.created_at
-          FROM intake_sessions s
-          JOIN patients p
-            ON p.id = s.patient_id
-          WHERE s.status IN ('awaiting_review', 'flagged_urgent', 'awaiting_instruments', 'completed')
-          ORDER BY COALESCE(s.submitted_at, s.created_at) DESC
-          LIMIT $1
-        `,
-        [limit],
+      whereParts.push(
+        "s.status IN ('awaiting_review', 'flagged_urgent', 'awaiting_instruments', 'completed')",
       );
     } else {
-      result = await this.db.query<{
-        session_id: string;
-        patient_id: string;
-        first_name: string;
-        last_name: string;
-        route_type: string;
-        status: string;
-        submitted_at: string | null;
-        created_at: string;
-      }>(
-        `
-          SELECT
-            s.id AS session_id,
-            s.patient_id,
-            p.first_name,
-            p.last_name,
-            s.route_type,
-            s.status,
-            s.submitted_at,
-            s.created_at
-          FROM intake_sessions s
-          JOIN patients p
-            ON p.id = s.patient_id
-          WHERE s.status = $1
-          ORDER BY COALESCE(s.submitted_at, s.created_at) DESC
-          LIMIT $2
-        `,
-        [status, limit],
-      );
+      params.push(status);
+      whereParts.push(`s.status = $${params.length}`);
     }
+
+    if (organizationId) {
+      params.push(organizationId);
+      whereParts.push(`(p.linked_org_id IS NULL OR p.linked_org_id = $${params.length})`);
+    }
+
+    params.push(limit);
+    const limitPlaceholder = `$${params.length}`;
+
+    const result = await this.db.query<{
+      session_id: string;
+      patient_id: string;
+      first_name: string;
+      last_name: string;
+      route_type: string;
+      status: string;
+      submitted_at: string | null;
+      created_at: string;
+    }>(
+      `
+        SELECT
+          s.id AS session_id,
+          s.patient_id,
+          p.first_name,
+          p.last_name,
+          s.route_type,
+          s.status,
+          s.submitted_at,
+          s.created_at
+        FROM intake_sessions s
+        JOIN patients p
+          ON p.id = s.patient_id
+        WHERE ${whereParts.join(" AND ")}
+        ORDER BY COALESCE(s.submitted_at, s.created_at) DESC
+        LIMIT ${limitPlaceholder}
+      `,
+      params,
+    );
 
     const queueItems = await Promise.all(
       result.rows.map(async (row) => ({
@@ -1634,7 +1667,16 @@ export class IntakeRepository {
     }
   }
 
-  async listUrgentCases(limit = 25): Promise<UrgentCaseRow[]> {
+  async listUrgentCases(limit = 25, organizationId?: string | null): Promise<UrgentCaseRow[]> {
+    const params: unknown[] = [];
+    const whereParts = ["s.status = 'flagged_urgent'"];
+    if (organizationId) {
+      params.push(organizationId);
+      whereParts.push(`(p.linked_org_id IS NULL OR p.linked_org_id = $${params.length})`);
+    }
+    params.push(limit);
+    const limitPlaceholder = `$${params.length}`;
+
     const result = await this.db.query<{
       session_id: string;
       patient_id: string;
@@ -1666,11 +1708,11 @@ export class IntakeRepository {
           ON p.id = s.patient_id
         JOIN safety_assessments sa
           ON sa.intake_session_id = s.id
-        WHERE s.status = 'flagged_urgent'
+        WHERE ${whereParts.join(" AND ")}
         ORDER BY s.created_at DESC
-        LIMIT $1
+        LIMIT ${limitPlaceholder}
       `,
-      [limit],
+      params,
     );
 
     return result.rows.map((row) => ({
