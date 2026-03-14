@@ -210,17 +210,35 @@ export default function IntakePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Emergency header */}
-      <header className="border-b border-border bg-card">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary" />
-            <span className="font-semibold text-foreground">Project Cura</span>
+    <div className="relative min-h-screen overflow-hidden bg-slate-950 text-foreground">
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(1200px 560px at 15% -10%, rgba(59,130,246,0.34), transparent 60%), radial-gradient(900px 460px at 92% 5%, rgba(16,185,129,0.22), transparent 58%), linear-gradient(160deg, #0B1327 0%, #11284B 40%, #1C3C6D 100%)",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-25"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            "linear-gradient(to bottom, rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(to right, rgba(255,255,255,0.08) 1px, transparent 1px)",
+          backgroundSize: "100% 38px, 38px 100%",
+          maskImage: "linear-gradient(to bottom, transparent 5%, black 28%, black 85%, transparent 100%)",
+        }}
+      />
+
+      <header className="relative z-10">
+        <div className="mx-auto mt-3 flex w-[min(980px,96%)] items-center justify-between rounded-2xl border border-white/20 bg-white/12 px-4 py-3 shadow-cura-md backdrop-blur-md">
+          <div className="flex items-center gap-2 text-white">
+            <Shield className="h-5 w-5 text-cyan-200" />
+            <span className="font-semibold tracking-tight">Project Cura</span>
           </div>
           <a
             href="tel:911"
-            className="flex items-center gap-1.5 text-xs font-medium text-urgent hover:underline"
+            className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/50 bg-rose-400/20 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/30"
           >
             <Phone size={14} />
             Emergency: Call 911
@@ -228,15 +246,16 @@ export default function IntakePage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8">
+      <main className="relative z-10 mx-auto w-[min(980px,96%)] px-2 pb-10 pt-8 md:pt-12">
+        <div className="glass-panel rounded-[2rem] px-4 py-6 md:px-8 md:py-8">
         {errorMessage && (
-          <div className="mb-4 rounded-xl border border-urgent/30 bg-risk-high-bg px-4 py-3 text-sm text-foreground">
+          <div className="mb-4 rounded-xl border border-rose-400/35 bg-rose-50/90 px-4 py-3 text-sm text-foreground">
             {errorMessage}
           </div>
         )}
 
         {step > 0 && (
-          <div className="mb-8">
+          <div className="mb-9">
             <IntakeStepper steps={STEPS} currentStep={step} />
           </div>
         )}
@@ -299,6 +318,7 @@ export default function IntakePage() {
             />
           )}
         </AnimatePresence>
+        </div>
       </main>
     </div>
   );

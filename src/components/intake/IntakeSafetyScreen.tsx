@@ -40,39 +40,41 @@ export function IntakeSafetyScreen({ flags, onChange, onNext, onBack, blocked }:
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="absolute inset-0 -m-4 rounded-3xl bg-risk-high-bg/50 pointer-events-none"
+          className="pointer-events-none absolute inset-0 -m-4 rounded-3xl bg-risk-high-bg/70"
         />
       )}
 
       <div className="relative">
         <motion.div variants={itemVariants} className="flex items-center gap-3 mb-2">
-          <ShieldAlert className="w-6 h-6 text-foreground" />
-          <h2 className="text-2xl font-semibold text-foreground">Safety Screening</h2>
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+            <ShieldAlert className="h-5 w-5" />
+          </div>
+          <h2 className="text-3xl font-semibold text-slate-900">Safety Screening</h2>
         </motion.div>
-        <motion.p variants={itemVariants} className="text-muted-foreground mb-8">
+        <motion.p variants={itemVariants} className="mb-8 text-slate-600">
           We need to ask a few important questions to make sure we provide the right level of care.
         </motion.p>
 
-        <div className="space-y-4">
+        <div className="mx-auto max-w-2xl space-y-4">
           {questions.map((q) => (
             <motion.div key={q.key} variants={itemVariants}>
               <div className="flex flex-col gap-2">
-                <p className="text-sm font-medium text-foreground">{q.label}</p>
+                <p className="text-sm font-semibold text-slate-800">{q.label}</p>
                 <div className="flex gap-3">
                   <SelectableCard
                     selected={flags[q.key] === true}
                     onSelect={() => onChange({ ...flags, [q.key]: true })}
                     danger={flags[q.key] === true}
-                    className="flex-1 text-center !p-3 !min-h-0"
+                    className="!min-h-0 flex-1 text-center !p-3"
                   >
-                    <span className="text-sm font-medium">Yes</span>
+                    <span className="text-sm font-semibold">Yes</span>
                   </SelectableCard>
                   <SelectableCard
                     selected={flags[q.key] === false}
                     onSelect={() => onChange({ ...flags, [q.key]: false })}
-                    className="flex-1 text-center !p-3 !min-h-0"
+                    className="!min-h-0 flex-1 text-center !p-3"
                   >
-                    <span className="text-sm font-medium">No</span>
+                    <span className="text-sm font-semibold">No</span>
                   </SelectableCard>
                 </div>
               </div>
@@ -92,10 +94,13 @@ export function IntakeSafetyScreen({ flags, onChange, onNext, onBack, blocked }:
         )}
 
         <motion.div variants={itemVariants} className="flex justify-between mt-8">
-          <Button variant="ghost" onClick={onBack} className="gap-2">
+          <Button variant="ghost" onClick={onBack} className="gap-2 rounded-full text-slate-700 hover:bg-white/50">
             <ArrowLeft size={16} /> Back
           </Button>
-          <Button onClick={onNext} className="gap-2 rounded-xl">
+          <Button
+            onClick={onNext}
+            className="gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-6 shadow-cura-md hover:from-cyan-600 hover:to-blue-700"
+          >
             {blocked ? "Continue Anyway" : "Continue"} <ArrowRight size={16} />
           </Button>
         </motion.div>

@@ -15,19 +15,19 @@ export function IntakeWelcome({ onStart }: IntakeWelcomeProps) {
       initial="hidden"
       animate="visible"
       exit={{ opacity: 0, y: -10 }}
-      className="text-center py-12"
+      className="py-10 text-center"
     >
       <motion.div variants={itemVariants} className="flex justify-center mb-6">
-        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-          <Heart className="w-8 h-8 text-primary" />
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400/20 to-blue-600/20 shadow-cura-sm ring-1 ring-cyan-300/30">
+          <Heart className="h-8 w-8 text-cyan-700" />
         </div>
       </motion.div>
 
-      <motion.h1 variants={itemVariants} className="text-3xl md:text-4xl font-semibold text-foreground mb-4">
+      <motion.h1 variants={itemVariants} className="mb-4 text-4xl font-semibold text-slate-900 md:text-5xl">
         Let's get you the right support
       </motion.h1>
 
-      <motion.p variants={itemVariants} className="text-lg text-muted-foreground max-w-lg mx-auto mb-8">
+      <motion.p variants={itemVariants} className="mx-auto mb-8 max-w-lg text-lg text-slate-600">
         Answer a few questions so we can guide you to the right care. This usually takes about 5–10 minutes.
       </motion.p>
 
@@ -35,7 +35,7 @@ export function IntakeWelcome({ onStart }: IntakeWelcomeProps) {
         <Button
           onClick={onStart}
           size="lg"
-          className="rounded-xl px-8 py-3 text-base font-medium gap-2"
+          className="gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-8 py-3 text-base font-semibold shadow-cura-md hover:from-cyan-600 hover:to-blue-700"
         >
           Begin Intake
           <ArrowRight size={18} />
@@ -50,7 +50,7 @@ export function IntakeWelcome({ onStart }: IntakeWelcomeProps) {
         />
       </motion.div>
 
-      <motion.div variants={itemVariants} className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+      <motion.div variants={itemVariants} className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-600">
         <Info size={14} />
         <span>Your responses are confidential and reviewed only by your care team.</span>
       </motion.div>

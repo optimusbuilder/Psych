@@ -16,10 +16,12 @@ export function SelectableCard({ children, selected, onSelect, className, danger
       whileTap={{ scale: 0.98 }}
       onClick={onSelect}
       className={cn(
-        "w-full text-left rounded-2xl border-2 p-5 transition-colors shadow-cura-sm",
-        selected && !danger && "border-primary bg-primary/5",
-        selected && danger && "border-urgent bg-risk-high-bg",
-        !selected && "border-border bg-card hover:border-primary/30",
+        "w-full text-left p-5 transition-all duration-200 shadow-cura-sm pill-option",
+        selected && !danger && "pill-option-selected ring-1 ring-primary/25",
+        selected &&
+          danger &&
+          "border-rose-400 bg-gradient-to-b from-rose-50 to-rose-100 ring-1 ring-rose-300/50",
+        !selected && "hover:border-primary/35 hover:bg-white/90",
         className
       )}
     >

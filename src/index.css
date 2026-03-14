@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -51,6 +51,7 @@
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
     --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+    --glass: 220 45% 99% / 0.72;
   }
 
   .dark {
@@ -91,11 +92,12 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply tracking-tight font-medium;
+    font-family: 'Sora', 'Manrope', system-ui, -apple-system, sans-serif;
   }
 
   p {
@@ -118,5 +120,28 @@
 
   .shadow-cura-lg {
     box-shadow: var(--shadow-lg);
+  }
+
+  .glass-panel {
+    background: hsl(var(--glass));
+    border: 1px solid hsl(var(--border) / 0.55);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow:
+      0 24px 45px -28px rgb(5 39 96 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.65);
+  }
+
+  .pill-option {
+    border-radius: 9999px;
+    border: 1.5px solid hsl(var(--border));
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.75));
+  }
+
+  .pill-option-selected {
+    border-color: hsl(var(--primary) / 0.55);
+    background:
+      radial-gradient(circle at 22% 20%, rgb(59 130 246 / 0.14), transparent 45%),
+      linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(240 247 255 / 0.88));
   }
 }

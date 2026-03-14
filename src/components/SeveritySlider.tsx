@@ -17,27 +17,19 @@ function getSeverityLabel(value: number) {
   return severityLabels[4];
 }
 
-function getTrackColor(value: number) {
-  if (value <= 2) return "bg-secondary";
-  if (value <= 4) return "bg-secondary";
-  if (value <= 6) return "bg-risk-moderate";
-  if (value <= 8) return "bg-urgent/70";
-  return "bg-urgent";
-}
-
 export function SeveritySlider({ label, value, onChange }: SeveritySliderProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-foreground">{label}</span>
+        <span className="text-sm font-semibold text-slate-800">{label}</span>
         <span
           className={cn(
-            "text-xs font-semibold tabular-nums px-2 py-0.5 rounded-full",
+            "rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums",
             value <= 4
-              ? "bg-secondary/10 text-secondary"
+              ? "bg-emerald-100 text-emerald-700"
               : value <= 6
-              ? "bg-risk-moderate-bg text-risk-moderate"
-              : "bg-risk-high-bg text-risk-high"
+              ? "bg-amber-100 text-amber-700"
+              : "bg-rose-100 text-rose-700"
           )}
         >
           {value}/10 · {getSeverityLabel(value)}
@@ -50,8 +42,9 @@ export function SeveritySlider({ label, value, onChange }: SeveritySliderProps) 
           min={0}
           max={10}
           step={1}
-          className={cn("[&_[role=slider]]:border-2 [&_[role=slider]]:border-card", 
-            "[&_[data-orientation=horizontal]>.bg-primary]:transition-colors",
+          className={cn(
+            "[&_[role=slider]]:h-5 [&_[role=slider]]:w-5 [&_[role=slider]]:border-2 [&_[role=slider]]:border-white [&_[role=slider]]:shadow-md",
+            "[&_[data-orientation=horizontal]>.bg-primary]:transition-colors [&_[data-orientation=horizontal]>.bg-primary]:bg-gradient-to-r [&_[data-orientation=horizontal]>.bg-primary]:from-cyan-400 [&_[data-orientation=horizontal]>.bg-primary]:to-blue-600",
           )}
         />
       </div>

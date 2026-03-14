@@ -45,50 +45,50 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
       animate="visible"
       exit={{ opacity: 0, x: -20 }}
     >
-      <motion.h2 variants={itemVariants} className="text-2xl font-semibold text-foreground mb-2">
+      <motion.h2 variants={itemVariants} className="mb-2 text-3xl font-semibold text-slate-900">
         Patient Information
       </motion.h2>
-      <motion.p variants={itemVariants} className="text-muted-foreground mb-8">
+      <motion.p variants={itemVariants} className="mb-8 text-slate-600">
         Tell us a bit about the person who needs care.
       </motion.p>
 
-      <div className="space-y-5">
-        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-4">
+      <div className="mx-auto max-w-2xl space-y-5">
+        <motion.div variants={itemVariants} className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>First Name</Label>
+            <Label className="text-slate-700">First Name</Label>
             <Input
               placeholder="e.g. Ava"
               value={info.firstName}
               onChange={(e) => update("firstName", e.target.value)}
-              className="rounded-xl"
+              className="h-11 rounded-xl border-slate-200/90 bg-white/85"
             />
           </div>
           <div className="space-y-2">
-            <Label>Last Name</Label>
+            <Label className="text-slate-700">Last Name</Label>
             <Input
               placeholder="e.g. Chen"
               value={info.lastName}
               onChange={(e) => update("lastName", e.target.value)}
-              className="rounded-xl"
+              className="h-11 rounded-xl border-slate-200/90 bg-white/85"
             />
           </div>
         </motion.div>
 
-        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-4">
+        <motion.div variants={itemVariants} className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>Age</Label>
+            <Label className="text-slate-700">Age</Label>
             <Input
               type="number"
               placeholder="e.g. 14"
               value={info.age}
               onChange={(e) => update("age", e.target.value)}
-              className="rounded-xl"
+              className="h-11 rounded-xl border-slate-200/90 bg-white/85"
             />
           </div>
           <div className="space-y-2">
-            <Label>Gender (optional)</Label>
+            <Label className="text-slate-700">Gender (optional)</Label>
             <Select value={info.gender} onValueChange={(v) => update("gender", v)}>
-              <SelectTrigger className="rounded-xl">
+              <SelectTrigger className="h-11 rounded-xl border-slate-200/90 bg-white/85">
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
               <SelectContent>
@@ -102,19 +102,19 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
-          <Label>School Grade (optional)</Label>
+          <Label className="text-slate-700">School Grade (optional)</Label>
           <Input
             placeholder="e.g. 8th grade"
             value={info.grade}
             onChange={(e) => update("grade", e.target.value)}
-            className="rounded-xl"
+            className="h-11 rounded-xl border-slate-200/90 bg-white/85"
           />
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
-          <Label>Primary Concern</Label>
+          <Label className="text-slate-700">Primary Concern</Label>
           <Select value={info.concern} onValueChange={(v) => update("concern", v)}>
-            <SelectTrigger className="rounded-xl">
+            <SelectTrigger className="h-11 rounded-xl border-slate-200/90 bg-white/85">
               <SelectValue placeholder="What brings you here today?" />
             </SelectTrigger>
             <SelectContent>
@@ -126,24 +126,24 @@ export function IntakePatientInfo({ info, onChange, onNext, onBack }: IntakePati
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
-          <Label>Tell us more (optional)</Label>
+          <Label className="text-slate-700">Tell us more (optional)</Label>
           <Textarea
             placeholder="Describe what's been going on..."
             value={info.description}
             onChange={(e) => update("description", e.target.value)}
-            className="rounded-xl min-h-[100px]"
+            className="min-h-[110px] rounded-xl border-slate-200/90 bg-white/85"
           />
         </motion.div>
       </div>
 
       <motion.div variants={itemVariants} className="flex justify-between mt-8">
-        <Button variant="ghost" onClick={onBack} className="gap-2">
+        <Button variant="ghost" onClick={onBack} className="gap-2 rounded-full text-slate-700 hover:bg-white/50">
           <ArrowLeft size={16} /> Back
         </Button>
         <Button
           onClick={onNext}
           disabled={!info.firstName || !info.lastName || !info.age}
-          className="gap-2 rounded-xl"
+          className="gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-6 shadow-cura-md hover:from-cyan-600 hover:to-blue-700"
         >
           Continue <ArrowRight size={16} />
         </Button>
