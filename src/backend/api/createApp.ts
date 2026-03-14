@@ -1,14 +1,22 @@
 import express from "express";
+import { z } from "zod";
 import {
   clinicianOverrideSchema,
   createSessionSchema,
   functionalImpactSchema,
   createReferralSchema,
+  referringProviderSchema,
   safetySchema,
   scoreInstrumentSchema,
   symptomSchema,
 } from "../intake/contracts";
 import { IntakeRepository, type SqlClient } from "../intake/repository";
+import { familyReferralCreateSchema } from "../family/contracts";
+import { FamilyReferralRepository, type FamilyReferralRecord } from "../family/repository";
+import { generateReferralPdf } from "../family/pdf";
+import { buildRulesInputFromFamilyIntake } from "../family/routing";
+import { evaluateTriageRules } from "../rules/engine";
+import { TriageAIService } from "../ai/service";
 import { getActorUserId, getRoleFromRequest, requireRoles } from "./auth";
 
 const intakeWriteRoles = ["patient", "caregiver", "intake_coordinator", "admin"] as const;
@@ -27,6 +35,16 @@ const instrumentOpsRoles = [
   "clinician",
   "admin",
 ] as const;
+
+const respondentSchema = z.object({
+  type: z.enum(["patient", "caregiver", "clinician"]),
+  relationshipToPatient: z.string().optional(),
+  communicationProfile: z
+    .enum(["verbal_typical", "limited_verbal", "nonverbal", "unknown"])
+    .optional(),
+  developmentalDelayConcern: z.boolean().optional(),
+  autismConcern: z.boolean().optional(),
+});
 
 interface BackendAppOptions {
   rateLimit?: {
@@ -89,6 +107,7 @@ function createRateLimiter(windowMs: number, maxRequests: number) {
 export function createBackendApp(db: SqlClient, options: BackendAppOptions = {}) {
   const app = express();
   const repository = new IntakeRepository(db);
+  const familyRepository = new FamilyReferralRepository(db);
   const rateLimitWindowMs = options.rateLimit?.windowMs ?? 60_000;
   const rateLimitMaxRequests = options.rateLimit?.maxRequests ?? 300;
 
@@ -99,6 +118,15 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
     }
     return jsonParser(req, res, next);
   });
+  app.use((req, res, next) => {
+    res.setHeader("access-control-allow-origin", "*");
+    res.setHeader("access-control-allow-methods", "GET,POST,PATCH,OPTIONS");
+    res.setHeader("access-control-allow-headers", "content-type,x-role,x-user-id");
+    if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+    return next();
+  });
   app.use(createRateLimiter(rateLimitWindowMs, rateLimitMaxRequests));
 
   function rejectRequest(
@@ -108,6 +136,39 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
   ): null {
     res.status(status).json(payload);
     return null;
+  }
+
+  function toFamilyReferralApiResponse(referral: FamilyReferralRecord) {
+    return {
+      referralId: referral.referralId,
+      status: referral.status,
+      createdAt: referral.createdAt,
+      intake: referral.intake,
+      recommendation: {
+        safetyGate: referral.decision.safetyGate,
+        urgencyLevel: referral.decision.urgencyLevel,
+        pathwayKey: referral.decision.pathwayKey,
+        specialtyTrack: referral.decision.specialtyTrack,
+        specialistType: referral.decision.specialistType,
+        specialistDescription: referral.decision.specialistDescription,
+        reasonCodes: referral.decision.reasonCodes,
+        rationale: referral.decision.rationale,
+        nextSteps: referral.decision.nextSteps,
+        engineVersion: referral.decision.engineVersion,
+        aiExplanation: referral.decision.aiExplanation,
+      },
+      report: {
+        pdfUrl: `/api/v1/family-referrals/${referral.referralId}/pdf`,
+      },
+      disclaimer:
+        "This tool provides referral guidance only. It is not diagnosis, treatment, or emergency care.",
+      emergency: {
+        call911: referral.decision.urgencyLevel === "immediate",
+        call988:
+          referral.decision.urgencyLevel === "immediate" ||
+          referral.decision.urgencyLevel === "urgent",
+      },
+    };
   }
 
   async function resolveProviderActorContext(
@@ -213,6 +274,116 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
     res.status(200).json({ ok: true });
   });
 
+  app.post("/api/v1/family-referrals", async (req, res) => {
+    const parseResult = familyReferralCreateSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        error: "ValidationError",
+        issues: parseResult.error.issues,
+      });
+    }
+
+    try {
+      const created = await familyRepository.createReferral(parseResult.data);
+      const saved = await familyRepository.getReferral(created.referralId);
+      if (!saved) {
+        return res.status(500).json({
+          error: "FamilyReferralMissingAfterCreate",
+          message: "Referral record was created but could not be read.",
+        });
+      }
+      return res.status(201).json(toFamilyReferralApiResponse(saved));
+    } catch (error) {
+      return res.status(500).json({
+        error: "CreateFamilyReferralFailed",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  app.get("/api/v1/family-referrals/:id", async (req, res) => {
+    const referral = await familyRepository.getReferral(req.params.id);
+    if (!referral) {
+      return res.status(404).json({ error: "FamilyReferralNotFound" });
+    }
+    return res.status(200).json(toFamilyReferralApiResponse(referral));
+  });
+
+  app.get("/api/v1/family-referrals/:id/pdf", async (req, res) => {
+    const referral = await familyRepository.getReferral(req.params.id);
+    if (!referral) {
+      return res.status(404).json({ error: "FamilyReferralNotFound" });
+    }
+
+    const pdfBuffer = generateReferralPdf(referral);
+    const fileName = `cura-referral-${referral.referralId}.pdf`;
+    await familyRepository.recordPdfGeneration(referral.referralId, fileName);
+
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-disposition", `attachment; filename="${fileName}"`);
+    return res.status(200).send(pdfBuffer);
+  });
+
+  app.post("/api/v1/family-referrals/:id/ai-explain", async (req, res) => {
+    const referral = await familyRepository.getReferral(req.params.id);
+    if (!referral) {
+      return res.status(404).json({ error: "FamilyReferralNotFound" });
+    }
+
+    const explanationRequest = z
+      .object({
+        regenerate: z.boolean().optional(),
+      })
+      .optional()
+      .safeParse(req.body);
+    if (!explanationRequest.success) {
+      return res.status(400).json({
+        error: "ValidationError",
+        issues: explanationRequest.error.issues,
+      });
+    }
+
+    if (referral.decision.aiExplanation && !explanationRequest.data?.regenerate) {
+      return res.status(200).json({
+        referralId: referral.referralId,
+        aiExplanation: referral.decision.aiExplanation,
+        generated: false,
+      });
+    }
+
+    let aiExplanation = "";
+    if (process.env.GEMINI_API_KEY) {
+      const rulesInput = buildRulesInputFromFamilyIntake(referral.intake);
+      const rulesResult = evaluateTriageRules(rulesInput);
+      aiExplanation = await TriageAIService.generateClinicianSummary(
+        rulesInput,
+        rulesResult,
+      );
+    } else {
+      aiExplanation = [
+        `Recommended specialist: ${referral.decision.specialistType}.`,
+        ...referral.decision.rationale.slice(0, 2),
+      ].join(" ");
+    }
+
+    const saved = await familyRepository.saveAiExplanation(
+      referral.referralId,
+      aiExplanation,
+    );
+    if (!saved) {
+      return res.status(500).json({
+        error: "SaveAiExplanationFailed",
+      });
+    }
+
+    return res.status(200).json({
+      referralId: referral.referralId,
+      aiExplanation,
+      generated: true,
+      usedModel: process.env.GEMINI_API_KEY ? "gemini-2.5-flash" : "fallback",
+    });
+  });
+
   app.post(
     "/api/v1/triage/referrals",
     requireRoles([...intakeWriteRoles, ...providerRoles]),
@@ -278,8 +449,29 @@ export function createBackendApp(db: SqlClient, options: BackendAppOptions = {})
         return res.status(404).json({ error: "SessionNotFound" });
       }
 
-      const saved = await repository.saveRespondent(req.params.id, parseResult.data);
-      return res.status(200).json(saved);
+      const providerParse = referringProviderSchema.safeParse({
+        providerName: parseResult.data.relationshipToPatient ?? parseResult.data.type,
+        clinicalNote: `Respondent type: ${parseResult.data.type}`,
+        communicationProfile: parseResult.data.communicationProfile,
+        developmentalDelayConcern: parseResult.data.developmentalDelayConcern,
+        autismConcern: parseResult.data.autismConcern,
+      });
+      if (!providerParse.success) {
+        return res.status(400).json({
+          error: "ValidationError",
+          issues: providerParse.error.issues,
+        });
+      }
+
+      const saved = await repository.saveReferringProvider(
+        req.params.id,
+        providerParse.data,
+      );
+      return res.status(200).json({
+        id: saved.id,
+        type: parseResult.data.type,
+        relationshipToPatient: parseResult.data.relationshipToPatient ?? null,
+      });
     },
   );
 

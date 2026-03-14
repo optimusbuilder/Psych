@@ -1,6 +1,7 @@
 "use client"
 
 import { useApp } from "@/lib/app-context"
+import { downloadFamilyReferralPdf } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { UrgencyBadge, UrgencyBadgeWithDescription } from "@/components/urgency-badge"
@@ -16,52 +17,18 @@ import {
 } from "lucide-react"
 
 export function ResultsScreen() {
-  const { recommendation, intakeData, setCurrentScreen, setCurrentStep } = useApp()
+  const { recommendation, setCurrentScreen, setCurrentStep } = useApp()
 
   if (!recommendation) {
     return null
   }
 
-  const handleDownloadPDF = () => {
-    // In a real app, this would generate and download a PDF
-    // For now, we'll create a simple text summary
-    const content = `
-CURA FAMILY REFERRAL SUMMARY
-============================
-
-Child Information:
-- Name: ${intakeData.childName || 'Not provided'}
-- Age Range: ${intakeData.childAge}
-
-RECOMMENDATION
---------------
-Specialist Type: ${recommendation.specialistType}
-Urgency Level: ${recommendation.urgencyLevel.toUpperCase()}
-
-${recommendation.specialistDescription}
-
-Why This Recommendation:
-${recommendation.rationale.map(r => `• ${r}`).join('\n')}
-
-Next Steps:
-${recommendation.nextSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-
-============================
-IMPORTANT DISCLAIMER
-This document provides referral guidance only. It is not a diagnosis 
-or treatment plan. Please share this with your healthcare provider.
-
-If you or your child are experiencing a mental health crisis, 
-call 988 (Suicide & Crisis Lifeline) or 911.
-
-Generated: ${new Date().toLocaleDateString()}
-    `.trim()
-
-    const blob = new Blob([content], { type: 'text/plain' })
+  const handleDownloadPDF = async () => {
+    const blob = await downloadFamilyReferralPdf(recommendation.pdfUrl)
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = document.createElement("a")
     a.href = url
-    a.download = 'cura-referral-summary.txt'
+    a.download = `cura-referral-${recommendation.referralId}.pdf`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -208,7 +175,7 @@ Generated: ${new Date().toLocaleDateString()}
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <a 
-                    href="tel:988" 
+                    href="tel:988"
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:bg-secondary/90 transition-colors"
                   >
                     <Phone size={16} />

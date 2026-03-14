@@ -40,9 +40,14 @@ export interface IntakeData {
 }
 
 export interface RecommendationResult {
+  referralId: string
+  pdfUrl: string
   specialistType: string
   specialistDescription: string
   urgencyLevel: UrgencyLevel
+  safetyGate?: "clear" | "urgent" | "immediate"
+  reasonCodes?: string[]
+  aiExplanation?: string | null
   rationale: string[]
   nextSteps: string[]
 }

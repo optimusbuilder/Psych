@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useApp, type IntakeData, type RecommendationResult } from "@/lib/app-context"
+import { useApp, type IntakeData } from "@/lib/app-context"
+import { ApiError, createFamilyReferral } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -35,116 +36,18 @@ const concernOptions = [
   { id: "other", label: "Other concerns" },
 ]
 
-function generateRecommendation(data: IntakeData): RecommendationResult {
-  // Check for immediate safety concerns first
-  if (data.suicidalIdeation === 'yes' || data.selfHarmBehavior === 'current') {
-    return {
-      specialistType: "Crisis Mental Health Services",
-      specialistDescription: "Immediate evaluation by a crisis mental health professional is recommended.",
-      urgencyLevel: 'immediate',
-      rationale: [
-        "Safety concerns have been identified that require immediate professional attention.",
-        "Crisis services can provide rapid assessment and appropriate level of care.",
-        "Early intervention for safety concerns leads to better outcomes."
-      ],
-      nextSteps: [
-        "Contact a crisis line (988) or go to your nearest emergency room",
-        "Do not leave your child alone if they are expressing thoughts of self-harm",
-        "Remove access to any items that could be used for self-harm",
-        "A crisis counselor can help determine the next steps"
-      ]
+function mapApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    const body = error.body as Record<string, unknown> | null
+    if (body && typeof body.message === "string") {
+      return body.message
     }
+    return `Request failed (${error.status}). Please try again.`
   }
-
-  if (data.selfHarmThoughts === 'yes') {
-    return {
-      specialistType: "Child & Adolescent Psychiatrist",
-      specialistDescription: "A psychiatrist specializing in children and adolescents who can provide comprehensive evaluation and treatment.",
-      urgencyLevel: 'urgent',
-      rationale: [
-        "Thoughts of self-harm require prompt professional evaluation.",
-        "A psychiatrist can assess whether medication or intensive therapy is needed.",
-        "Early intervention can prevent escalation of symptoms."
-      ],
-      nextSteps: [
-        "Contact your pediatrician for an urgent referral",
-        "Call your insurance company for in-network providers",
-        "Consider reaching out to your local children's hospital",
-        "Keep communication open with your child about their feelings"
-      ]
-    }
+  if (error instanceof Error) {
+    return error.message
   }
-
-  // Determine specialist based on primary concerns
-  const concerns = data.primaryConcerns
-  const duration = data.concernDuration
-  const severity = data.moodChanges === 'severe' || data.academicImpact === 'significant'
-
-  let specialistType = "Licensed Clinical Social Worker (LCSW)"
-  let specialistDescription = "A therapist trained in evidence-based approaches for children and families."
-  let urgencyLevel: 'routine' | 'priority' | 'urgent' = 'routine'
-  const rationale: string[] = []
-  const nextSteps: string[] = []
-
-  if (concerns.includes('attention') || concerns.includes('learning')) {
-    specialistType = "Child Psychologist"
-    specialistDescription = "A psychologist who can conduct comprehensive testing and provide therapy for attention and learning concerns."
-    rationale.push("Attention and learning concerns often benefit from psychological testing to identify specific needs.")
-  }
-
-  if (concerns.includes('trauma')) {
-    specialistType = "Trauma-Specialized Therapist"
-    specialistDescription = "A therapist trained in trauma-focused cognitive behavioral therapy (TF-CBT) or EMDR."
-    rationale.push("Trauma-informed care uses specific techniques proven effective for processing difficult experiences.")
-  }
-
-  if (concerns.includes('eating')) {
-    specialistType = "Eating Disorder Specialist"
-    specialistDescription = "A therapist or team specializing in eating disorders and body image concerns."
-    urgencyLevel = 'priority'
-    rationale.push("Eating concerns require specialized care and may benefit from a multidisciplinary approach.")
-  }
-
-  if (concerns.includes('anxiety') || concerns.includes('depression')) {
-    if (duration === 'more-than-6-months' || severity) {
-      specialistType = "Child & Adolescent Psychiatrist"
-      specialistDescription = "A psychiatrist who can evaluate whether therapy alone or a combination with medication would be most effective."
-      urgencyLevel = 'priority'
-      rationale.push("Persistent mood symptoms may benefit from a comprehensive psychiatric evaluation.")
-    } else {
-      rationale.push("Anxiety and depression in children often respond well to cognitive-behavioral therapy (CBT).")
-    }
-  }
-
-  if (severity) {
-    if (urgencyLevel === 'routine') urgencyLevel = 'priority'
-    rationale.push("The severity of current symptoms suggests prioritizing this appointment.")
-  }
-
-  if (duration === 'more-than-6-months') {
-    rationale.push("Longer duration of symptoms indicates this is an established pattern that professional support can address.")
-  }
-
-  if (data.familyHistory === 'yes') {
-    rationale.push("Family history of mental health conditions can provide important context for treatment planning.")
-  }
-
-  if (data.previousTreatment === 'yes-helpful' || data.previousTreatment === 'yes-not-helpful') {
-    rationale.push("Previous treatment experience will help inform the approach for this referral.")
-  }
-
-  nextSteps.push("Ask your pediatrician for a referral to a " + specialistType.toLowerCase())
-  nextSteps.push("Check with your insurance for covered providers and any authorization requirements")
-  nextSteps.push("Download the referral summary below to share with the provider")
-  nextSteps.push("Prepare a list of questions you'd like to ask at the first appointment")
-
-  return {
-    specialistType,
-    specialistDescription,
-    urgencyLevel,
-    rationale,
-    nextSteps
-  }
+  return "Something went wrong. Please try again."
 }
 
 export function IntakeScreen() {
@@ -158,12 +61,16 @@ export function IntakeScreen() {
   } = useApp()
   
   const [localData, setLocalData] = useState<IntakeData>(intakeData)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const updateField = <K extends keyof IntakeData>(field: K, value: IntakeData[K]) => {
     setLocalData(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    setSubmitError(null)
+
     // Check for immediate safety concerns at step 3 (Safety section)
     if (currentStep === 3) {
       if (localData.suicidalIdeation === 'yes' || localData.selfHarmBehavior === 'current') {
@@ -176,15 +83,32 @@ export function IntakeScreen() {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(currentStep + 1)
     } else {
-      // Complete intake
-      setIntakeData(localData)
-      const recommendation = generateRecommendation(localData)
-      setRecommendation(recommendation)
-      
-      if (recommendation.urgencyLevel === 'immediate') {
-        setCurrentScreen('safety')
-      } else {
-        setCurrentScreen('results')
+      setSubmitting(true)
+      try {
+        const response = await createFamilyReferral(localData)
+        setIntakeData(localData)
+        setRecommendation({
+          referralId: response.referralId,
+          pdfUrl: response.report.pdfUrl,
+          specialistType: response.recommendation.specialistType,
+          specialistDescription: response.recommendation.specialistDescription,
+          urgencyLevel: response.recommendation.urgencyLevel,
+          safetyGate: response.recommendation.safetyGate,
+          reasonCodes: response.recommendation.reasonCodes,
+          aiExplanation: response.recommendation.aiExplanation,
+          rationale: response.recommendation.rationale,
+          nextSteps: response.recommendation.nextSteps,
+        })
+
+        if (response.recommendation.urgencyLevel === "immediate") {
+          setCurrentScreen("safety")
+        } else {
+          setCurrentScreen("results")
+        }
+      } catch (error) {
+        setSubmitError(mapApiError(error))
+      } finally {
+        setSubmitting(false)
       }
     }
   }
@@ -268,11 +192,20 @@ export function IntakeScreen() {
           )}
         </div>
 
+        {submitError && (
+          <Card className="mt-6 border-destructive/40 bg-destructive/5">
+            <CardContent className="p-4">
+              <p className="text-sm text-destructive">{submitError}</p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Navigation */}
         <div className="flex justify-between mt-8 pt-6 border-t border-border">
           <Button
             variant="outline"
             onClick={handleBack}
+            disabled={submitting}
             className="gap-2"
           >
             <ArrowLeft size={18} />
@@ -281,10 +214,10 @@ export function IntakeScreen() {
           
           <Button
             onClick={handleNext}
-            disabled={!canProceed()}
+            disabled={!canProceed() || submitting}
             className="gap-2 bg-primary hover:bg-primary/90"
           >
-            {currentStep === STEPS.length - 1 ? 'Get Recommendations' : 'Continue'}
+            {submitting ? "Submitting..." : currentStep === STEPS.length - 1 ? 'Get Recommendations' : 'Continue'}
             <ArrowRight size={18} />
           </Button>
         </div>

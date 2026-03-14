@@ -19,6 +19,7 @@
     "test:phase7": "vitest run src/backend/review/p7ClinicianOverrideAudit.test.ts",
     "test:phase8": "vitest run src/frontend/p8FrontendLiveFlow.test.tsx",
     "test:phase9": "vitest run src/backend/security/p9SecurityReleaseGate.test.ts",
+    "test:family": "vitest run src/backend/family/pFamilyReferralFlow.test.ts",
     "api:start": "tsx src/backend/api/server.ts",
     "db:up": "bash scripts/db/up.sh",
     "db:down": "bash scripts/db/down.sh",
