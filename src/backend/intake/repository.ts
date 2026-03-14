@@ -1262,7 +1262,7 @@ export class IntakeRepository {
           FROM intake_sessions s
           JOIN patients p
             ON p.id = s.patient_id
-          WHERE s.status IN ('awaiting_review', 'flagged_urgent')
+          WHERE s.status IN ('awaiting_review', 'flagged_urgent', 'awaiting_instruments', 'completed')
           ORDER BY COALESCE(s.submitted_at, s.created_at) DESC
           LIMIT $1
         `,
