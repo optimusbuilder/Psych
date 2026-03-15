@@ -1,5 +1,9 @@
 {
   "app": {
+    "[project]/new_frontend/app/_not-found/page": [
+      "static/media/a343f882a40d2cc9-s.p.71e1367e.woff2",
+      "static/media/03bda585a99c6450-s.p.ad37b9d9.woff2"
+    ],
     "[project]/new_frontend/app/page": [
       "static/media/a343f882a40d2cc9-s.p.71e1367e.woff2",
       "static/media/03bda585a99c6450-s.p.ad37b9d9.woff2"

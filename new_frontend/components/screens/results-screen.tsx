@@ -1,7 +1,10 @@
 "use client"
 
+import { useState } from "react"
+
 import { useApp } from "@/lib/app-context"
 import { downloadFamilyReferralPdf } from "@/lib/api"
+import { SchedulingDemoDialog } from "@/components/screens/scheduling-demo-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { UrgencyBadge, UrgencyBadgeWithDescription } from "@/components/urgency-badge"
@@ -13,11 +16,13 @@ import {
   FileText, 
   User,
   RotateCcw,
-  Phone
+  Phone,
+  CalendarClock
 } from "lucide-react"
 
 export function ResultsScreen() {
   const { recommendation, setCurrentScreen, setCurrentStep } = useApp()
+  const [isSchedulingOpen, setIsSchedulingOpen] = useState(false)
 
   if (!recommendation) {
     return null
@@ -170,10 +175,17 @@ export function ResultsScreen() {
         )}
 
         {/* Actions */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8 opacity-0 animate-slide-up stagger-4">
+        <div className="flex flex-col gap-4 mb-8 opacity-0 animate-slide-up stagger-4">
+          <Button
+            onClick={() => setIsSchedulingOpen(true)}
+            className="gap-2 bg-secondary hover:bg-secondary/90 py-6 text-base"
+          >
+            <CalendarClock size={20} />
+            Book Recommended Visit (Demo)
+          </Button>
           <Button
             onClick={handleDownloadPDF}
-            className="flex-1 gap-2 bg-primary hover:bg-primary/90 py-6 text-base"
+            className="gap-2 bg-primary hover:bg-primary/90 py-6 text-base"
           >
             <Download size={20} />
             Download Referral Summary
@@ -187,6 +199,10 @@ export function ResultsScreen() {
             Start Over
           </Button>
         </div>
+
+        <p className="text-xs text-muted-foreground mb-8 opacity-0 animate-fade-in stagger-4">
+          Demo mode: booking and EHR sync shown here are simulated and do not create real appointments.
+        </p>
 
         {/* Crisis Resources */}
         <Card className="bg-muted/50 border-border opacity-0 animate-fade-in stagger-5">
@@ -225,6 +241,8 @@ export function ResultsScreen() {
           diagnosis, or treatment. Always consult with a qualified healthcare provider.
         </p>
       </div>
+
+      <SchedulingDemoDialog open={isSchedulingOpen} onOpenChange={setIsSchedulingOpen} />
     </div>
   )
 }

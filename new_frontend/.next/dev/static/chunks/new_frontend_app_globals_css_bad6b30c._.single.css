@@ -974,6 +974,10 @@
     max-height: var(--radix-select-content-available-height);
   }
 
+  .max-h-\[88vh\] {
+    max-height: 88vh;
+  }
+
   .max-h-\[300px\] {
     max-height: 300px;
   }
@@ -1438,6 +1442,12 @@
     gap: calc(var(--spacing) * 7);
   }
 
+  :where(.space-y-1 > :not(:last-child)) {
+    --tw-space-y-reverse: 0;
+    margin-block-start: calc(calc(var(--spacing) * 1) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing) * 1) * calc(1 - var(--tw-space-y-reverse)));
+  }
+
   :where(.space-y-2 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
     margin-block-start: calc(calc(var(--spacing) * 2) * var(--tw-space-y-reverse));
@@ -1737,6 +1747,16 @@
     }
   }
 
+  .border-primary\/30 {
+    border-color: var(--primary);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-primary\/30 {
+      border-color: color-mix(in oklab, var(--primary) 30%, transparent);
+    }
+  }
+
   .border-primary\/35 {
     border-color: var(--primary);
   }
@@ -1768,6 +1788,16 @@
   @supports (color: color-mix(in lab, red, red)) {
     .border-success\/20 {
       border-color: color-mix(in oklab, var(--success) 20%, transparent);
+    }
+  }
+
+  .border-success\/35 {
+    border-color: var(--success);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-success\/35 {
+      border-color: color-mix(in oklab, var(--success) 35%, transparent);
     }
   }
 
@@ -2125,6 +2155,16 @@
 
   .bg-sidebar-border {
     background-color: var(--sidebar-border);
+  }
+
+  .bg-success\/5 {
+    background-color: var(--success);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .bg-success\/5 {
+      background-color: color-mix(in oklab, var(--success) 5%, transparent);
+    }
   }
 
   .bg-success\/10 {
@@ -2959,6 +2999,10 @@
     --cell-size: calc(var(--spacing) * 8);
   }
 
+  .running {
+    animation-play-state: running;
+  }
+
   .group-focus-within\/menu-item\:opacity-100:is(:where(.group\/menu-item):focus-within *) {
     opacity: 1;
   }
@@ -3372,6 +3416,18 @@
     .hover\:-translate-y-0\.5:hover {
       --tw-translate-y: calc(var(--spacing) * -.5);
       translate: var(--tw-translate-x) var(--tw-translate-y);
+    }
+  }
+
+  @media (hover: hover) {
+    .hover\:border-primary\/40:hover {
+      border-color: var(--primary);
+    }
+
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:border-primary\/40:hover {
+        border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+      }
     }
   }
 
@@ -4829,6 +4885,12 @@
   @media (min-width: 40rem) {
     .sm\:flex {
       display: flex;
+    }
+  }
+
+  @media (min-width: 40rem) {
+    .sm\:max-w-2xl {
+      max-width: var(--container-2xl);
     }
   }
 
