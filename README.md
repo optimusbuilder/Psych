@@ -1,267 +1,228 @@
-# Project Cura: Child & Adolescent Psychiatry Triage
+# Project Cura
 
-This repo contains the frontend prototype for a shared triage platform with two entry points:
-- Patient/Caregiver Intake App
-- Hospital/Provider Dashboard
+Project Cura is a rules-first child and adolescent psychiatry triage platform. It combines:
 
-Target architecture: both entry points call one deterministic clinical triage engine (rules-first), with clinician override and audit logging.
+- A Vite React intake + provider dashboard (`/` and `/provider`) 
+- A Next.js family referral experience (`new_frontend/`)
+- An Express backend with deterministic triage logic
+- PostgreSQL persistence, migrations, and seed data
 
-## Tech Stack (Current)
-- Vite
-- React + TypeScript
-- Tailwind CSS + shadcn-ui
-- Vitest + Playwright (test tooling available)
+The goal is clinically safe routing first, with provider override and auditable workflows.
 
-## Local Setup
+## What This Repo Contains
+
+- `src/`: Vite frontend + backend services + test suites
+- `new_frontend/`: Next.js family referral frontend
+- `db/`: SQL migrations and seed data
+- `scripts/`: local DB and full-stack dev scripts
+- `docs/`: architecture, clinical, and engineering notes
+
+## System Overview
+
+1. Intake data is collected from caregiver/patient workflows.
+2. Safety screening runs first and can suspend normal routing.
+3. Deterministic rules engine assigns urgency/pathway.
+4. Instrument routing/scoring and clinician review complete triage.
+5. Family referral flow supports question-spec + PDF + optional AI explanation.
+
+## Prerequisites
+
+- Node.js 20+
+- npm 10+
+- Docker Desktop (recommended for local Postgres)
+
+## Quick Start
+
 ```bash
 npm install
 npm --prefix new_frontend install
-npm run dev
-```
-
-## Run Everything (DB + Backend + Both Frontends)
-```bash
+cp .env.example .env
 npm run dev:all
 ```
 
-This starts:
-- Postgres + migrations + seed
-- Backend API (`http://localhost:4000`)
-- Vite app (`http://localhost:8080`)
-- `new_frontend` Next app (`http://localhost:3000`)
+Services started by `dev:all`:
 
-If Docker is unavailable but your database is already running, skip DB bootstrap:
+- Backend API: `http://localhost:4000`
+- Vite app: `http://localhost:8080`
+- Next app: `http://localhost:3000`
+
+If your database is already up:
+
 ```bash
 SKIP_DB_BOOT=1 npm run dev:all
 ```
 
-If your DB schema/data is stale and you want a clean rebuild:
+For a full DB reset + reseed:
+
 ```bash
 DB_BOOT_MODE=reset npm run dev:all
 ```
 
-## Local Database (Postgres)
+## Environment Variables
+
+Core variables from `.env.example`:
+
+| Variable | Purpose |
+| --- | --- |
+| `API_PORT` | Backend port (default `4000`) |
+| `DATABASE_URL` | Postgres connection string |
+| `POSTGRES_*` | Local container DB bootstrap |
+| `VITE_API_BASE_URL` | Vite API base (empty uses Vite proxy) |
+| `VITE_PROVIDER_USER_ID` | Provider dashboard user context |
+| `DEFAULT_ORGANIZATION_ID` | Default org for seeded/demo flows |
+| `TRIAGE_ENGINE_VERSION` | Rules engine version stamp |
+| `LLM_SUMMARY_MODEL` | Model label used in summary layer config |
+
+Next frontend variable:
+
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_API_BASE_URL` | Base URL used by `new_frontend/lib/api.ts` |
+
+Optional AI explanation support:
+
+| Variable | Purpose |
+| --- | --- |
+| `GEMINI_API_KEY` | Enables model-generated family referral explanation |
+
+## Development Commands
+
+### Root (`package.json`)
+
 ```bash
-cp .env.example .env
+npm run dev            # Vite frontend
+npm run api:start      # Express backend only
+npm run dev:all        # DB + backend + Vite + Next
+npm run lint           # ESLint
+npm test               # Vitest suite
+npm run build          # Vite production build
+npm run check          # lint + test + build
+```
+
+### Next frontend (`new_frontend/package.json`)
+
+```bash
+npm --prefix new_frontend run dev
+npm --prefix new_frontend run lint
+npm --prefix new_frontend run build
+npm --prefix new_frontend run start
+```
+
+## Database Operations
+
+```bash
 npm run db:up
 npm run db:migrate
 npm run db:seed
+npm run db:status
+npm run db:psql
+npm run db:reset
+npm run db:down
 ```
 
 Reference: `docs/engineering/local-postgres.md`
 
-## Run Backend API (Phase 3)
-```bash
-npm run api:start
-```
+## API Surface (Summary)
 
-## Family Referral MVP API (Hackathon)
-The family self-service flow is available at:
+### Health
+
+- `GET /api/v1/health`
+
+### Family referral
+
 - `GET /api/v1/family-referrals/question-spec`
 - `POST /api/v1/family-referrals`
 - `GET /api/v1/family-referrals/:id`
 - `GET /api/v1/family-referrals/:id/pdf`
 - `POST /api/v1/family-referrals/:id/ai-explain`
 
-`POST /api/v1/family-referrals` accepts both:
-- legacy condensed intake payloads
-- question-spec payloads (`responses[]`)
+### Intake session lifecycle
 
-Reference: `docs/architecture/hackathon-family-backend-api.md`
+- `POST /api/v1/intake-sessions`
+- `PATCH /api/v1/intake-sessions/:id/respondent`
+- `PATCH /api/v1/intake-sessions/:id/safety`
+- `PATCH /api/v1/intake-sessions/:id/symptoms`
+- `PATCH /api/v1/intake-sessions/:id/functional-impact`
+- `POST /api/v1/intake-sessions/:id/submit`
+- `GET /api/v1/intake-sessions/:id`
+- `GET /api/v1/intake-sessions/:id/audit`
 
-Frontend Phase 8 integration uses live `/api/v1/*` endpoints. In local development:
-- run backend on `http://localhost:4000`
-- run frontend on `http://localhost:8080` (Vite proxy forwards `/api` to backend)
-- set `VITE_PROVIDER_USER_ID` to a valid provider user id for dashboard API calls (default: `user-clin-001`)
+### Instruments
 
-## Delivery Plan by Phase
+- `GET /api/v1/intake-sessions/:id/instrument-assignments`
+- `POST /api/v1/intake-sessions/:id/instruments/route`
+- `POST /api/v1/instrument-assignments/:assignmentId/complete`
+- `POST /api/v1/instrument-assignments/:assignmentId/score`
 
-Each phase has:
-- Scope: what we build
-- Success test: objective pass/fail criteria
+### Provider workflow
 
-### Phase 1: Foundation and Project Structure
-Scope:
-- Define backend service structure (API layer, triage orchestration, rules, review, instruments)
-- Add environment configuration strategy (`.env.example`)
-- Establish linting/testing conventions and CI baseline
+- `GET /api/v1/provider/review-queue`
+- `GET /api/v1/provider/urgent-cases`
+- `GET /api/v1/provider/cases/:id`
+- `POST /api/v1/provider/cases/:id/override`
 
-Success test:
-- Test name: `P1-Foundation-Smoke`
-- Method:
-1. Fresh clone installs with `npm install`
-2. Frontend starts with `npm run dev`
-3. Test suite runs with `npm test`
-- Pass criteria:
-1. No install/runtime errors
-2. All baseline tests pass
-3. CI pipeline is green on main branch
+## Auth and Request Headers
 
-### Phase 2: Data Model and Persistence
-Scope:
-- Implement relational schema for core entities:
-  - users, organizations, patients, respondents
-  - intake_sessions, safety_assessments, symptom_family_assessments
-  - functional_impairment_scores, instrument_assignments, instrument_results
-  - triage_decisions, clinician_reviews, audit_logs
-- Add migrations and seed data
+Backend endpoints are role-gated through headers:
 
-Success test:
-- Test name: `P2-DB-Migration-Integrity`
-- Method:
-1. Run migrations on empty database
-2. Seed sample cases
-3. Query critical relations (session -> safety -> decision -> review)
-- Pass criteria:
-1. Migrations apply without manual fixes
-2. Foreign keys and constraints enforce valid relationships
-3. Seeded sample can be read end-to-end from one query path
+- `x-role`: one of `patient`, `caregiver`, `intake_coordinator`, `clinician`, `admin`
+- `x-user-id`: required for provider endpoints
 
-### Phase 3: Intake Session API
-Scope:
-- Build session lifecycle APIs:
-  - create intake session
-  - save each step
-  - resume in-progress session
-  - submit completed intake
-- Add request validation and role-aware access
+## Testing
 
-Success test:
-- Test name: `P3-Intake-Session-E2E`
-- Method:
-1. Create session via API
-2. Save respondent, safety, symptoms, functional impact in separate requests
-3. Resume session and verify state continuity
-4. Submit session and verify status transition
-- Pass criteria:
-1. No data loss across step-by-step saves
-2. Session resumes exactly at latest saved state
-3. Final status changes to submitted/awaiting-triage
+Run all tests:
 
-### Phase 4: Safety Service (Universal First Gate)
-Scope:
-- Implement safety evaluation as mandatory first logic
-- Positive safety flags create urgent review case
-- Normal routing is suspended when safety-positive
+```bash
+npm test
+```
 
-Success test:
-- Test name: `P4-Safety-Override-Rule`
-- Method:
-1. Submit intake with at least one positive safety criterion
-2. Attempt normal routing call
-3. Check provider urgent queue and audit log
-- Pass criteria:
-1. Case is marked urgent
-2. Normal auto-routing does not continue
-3. Urgent event is logged with timestamp and rule reason
+Run phase suites:
 
-### Phase 5: Deterministic Clinical Rules Engine
-Scope:
-- Implement rules for:
-  - age band classification
-  - respondent/rater logic
-  - symptom family selection
-  - severity by highest functional impairment
-  - mixed/unclear routing to clinician review
-  - safety gate escalation (`clear | urgent | immediate`)
-  - specialty-track diversification for clinically distinct moderate cases
-- Version all rule sets
+```bash
+npm run test:phase2
+npm run test:phase3
+npm run test:phase4
+npm run test:phase5
+npm run test:phase6
+npm run test:phase7
+npm run test:phase8
+npm run test:phase9
+npm run test:family
+```
 
-Success test:
-- Test name: `P5-Rules-Fixture-Matrix`
-- Test name: `P5-Threshold-Drift-Guards`
-- Method:
-1. Run a fixture matrix covering age bands, symptom families, and severity tiers
-2. Validate engine outputs against expected outcomes
-3. Run threshold guard fixtures (`n-1`, `n`, `n+1`) around severity and mixed/unclear cutoffs
-4. Validate route diversification and missing-data safety guards
-- Pass criteria:
-1. 100% fixture match for expected pathway/review requirement
-2. Engine returns deterministic output for repeated same input
-3. Rule version is attached to every triage decision
-4. Safety-positive fixtures never auto-clear
-5. Moderate-family fixtures produce diversified `specialty_track` outputs
+Quality gates reference: `docs/engineering/quality-gates.md`
 
-### Phase 6: Instrument Routing and Scoring
-Scope:
-- Assign instruments by age + symptom family + severity
-- Support completion state and scoring/cutoff interpretation
-- Feed results back into triage decision context
+## CI
 
-Success test:
-- Test name: `P6-Instrument-Routing-Accuracy`
-- Method:
-1. Create representative cases (anxiety, mood, ADHD, developmental, substance)
-2. Trigger assignment logic
-3. Submit mock results near and above cutoff
-- Pass criteria:
-1. Assigned instruments match protocol mapping for each case
-2. Cutoff triggers are interpreted correctly
-3. Instrument result state transitions are valid (`assigned -> completed -> scored`)
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 
-### Phase 7: Provider Review Workflow
-Scope:
-- Build review queue, urgent queue, case detail, and override action
-- Record rationale for clinician override
-- Finalize disposition workflow
+1. `npm ci`
+2. `npm run lint`
+3. `npm test`
+4. `npm run build`
 
-Success test:
-- Test name: `P7-Clinician-Override-Audit`
-- Method:
-1. Pull flagged case into review queue
-2. Apply override with rationale
-3. Finalize disposition
-4. Re-open case history
-- Pass criteria:
-1. Override updates final disposition correctly
-2. Rationale is required and persisted
-3. Full action chain appears in audit logs
+on pushes to `main` and `codex/**`, and on pull requests.
 
-### Phase 8: Patient/Provider Frontend Integration
-Scope:
-- Replace mock data with live APIs
-- Wire intake steps to save/resume/submit endpoints
-- Wire provider pages to real queues and case detail endpoints
+## Architecture and Clinical Docs
 
-Success test:
-- Test name: `P8-Frontend-Live-Flow`
-- Method:
-1. Complete intake from UI
-2. Verify case appears in provider dashboard
-3. Open case detail and review generated recommendation
-- Pass criteria:
-1. No mock data dependency for primary flow
-2. New intake appears in provider list within expected latency
-3. Case detail matches submitted data and engine output
+- Foundation: `docs/architecture/phase-1-foundation.md`
+- Data model: `docs/architecture/phase-2-data-model.md`
+- Intake API: `docs/architecture/phase-3-intake-api.md`
+- Safety: `docs/architecture/phase-4-safety-service.md`
+- Rules engine: `docs/architecture/phase-5-rules-engine.md`
+- Instrument routing: `docs/architecture/phase-6-instrument-routing-scoring.md`
+- Provider review: `docs/architecture/phase-7-provider-review-workflow.md`
+- Frontend integration: `docs/architecture/phase-8-frontend-live-flow.md`
+- Security readiness: `docs/architecture/phase-9-security-release-readiness.md`
+- Family referral API: `docs/architecture/hackathon-family-backend-api.md`
 
-### Phase 9: Security, Compliance, and Release Readiness
-Scope:
-- Enforce RBAC by role and organization
-- Add audit coverage for sensitive actions
-- Harden API validation, rate limits, and error handling
-- Finalize deployment and monitoring checklist
+## Troubleshooting
 
-Success test:
-- Test name: `P9-Security-Release-Gate`
-- Method:
-1. Run role-based negative tests (unauthorized access attempts)
-2. Verify audit entries for review/override/disposition
-3. Run production build and smoke checks
-- Pass criteria:
-1. Unauthorized actions are denied with correct status codes
-2. Sensitive actions are always auditable
-3. Production deployment passes smoke tests with no critical errors
+- If `dev:all` fails at DB boot, ensure Docker Desktop is running.
+- If Next build fails while fetching Google Fonts, retry with internet access enabled.
+- If provider views return `403`, verify `x-role`/`x-user-id` map to a seeded provider user.
+- If migrations appear already applied, use `DB_BOOT_MODE=reset npm run dev:all`.
 
-Verification command:
-- `npm run test:phase9`
+## License
 
-## Definition of MVP Complete
-MVP is complete when Phases 1 through 8 pass all success tests, with Phase 9 minimum gate items:
-- RBAC enforced for provider actions
-- Audit logging for safety flags and clinician overrides
-- Production smoke test passing
-
-## Notes on AI Usage
-- AI can support summarization, plain-language explanations, and structured extraction.
-- AI must not make final safety or disposition decisions.
-- Deterministic rules engine remains the source of truth for triage routing.
+MIT. See `LICENSE`.
